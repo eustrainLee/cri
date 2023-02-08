@@ -43,9 +43,12 @@ const PodConfigMapVolPerms = 0755
 const PodConfigMapVolDir = "/configmaps"
 const PodConfigMapFilePerms = 0644
 
+var agentPort = "127.0.0.1:40002"
+
 // Provider implements the virtual-kubelet provider interface and manages pods in a CRI runtime
 // NOTE: Provider is not inteded as an alternative to Kubelet, rather it's intended for testing and POC purposes
-//       As such, it is far from functionally complete and never will be. It provides the minimum function necessary
+//
+//	As such, it is far from functionally complete and never will be. It provides the minimum function necessary
 type Provider struct {
 	resourceManager    *manager.ResourceManager
 	podLogRoot         string

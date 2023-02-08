@@ -1,13 +1,30 @@
 package cri
 
-import "syscall"
+import (
+	"fmt"
+	"log"
+	"net"
+	"net/rpc"
+	"net/rpc/jsonrpc"
+)
 
-// Find the total memory in the guest OS
 func getSystemTotalMemory() uint64 {
-	in := &syscall.Sysinfo_t{}
-	err := syscall.Sysinfo(in)
+	conn, err := net.Dial("tcp", agentPort)
 	if err != nil {
-		return 0
+		log.Fatal("dial error:", err)
 	}
-	return uint64(in.Totalram) * uint64(in.Unit)
+
+	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
+
+	var reply uint64
+	err = client.Call("getSystemTotalMemory", nil, &reply)
+	if err != nil {
+		log.Fatal("getSystemTotalMemory error:", err)
+	}
+	fmt.Printf("getSystemTotalMemory: %d\n", reply)
+	return reply
+}
+
+func init() {
+	fmt.Println("load rpc client")
 }
