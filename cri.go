@@ -1,13 +1,11 @@
 package cri
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
-	"os"
 	"path"
 	"path/filepath"
 	"runtime"
@@ -43,7 +41,8 @@ const PodConfigMapVolPerms = 0755
 const PodConfigMapVolDir = "/configmaps"
 const PodConfigMapFilePerms = 0644
 
-var agentPort = "127.0.0.1:40002"
+var CriPort = ":10350"
+var AgentPort = ":40002"
 
 // Provider implements the virtual-kubelet provider interface and manages pods in a CRI runtime
 // NOTE: Provider is not inteded as an alternative to Kubelet, rather it's intended for testing and POC purposes
@@ -56,6 +55,7 @@ type Provider struct {
 	nodeName           string
 	operatingSystem    string
 	internalIP         string
+	nodeIP             string
 	daemonEndpointPort int32
 	podStatus          map[types.UID]CRIPod // Indexed by Pod Spec UID
 	runtimeClient      criapi.RuntimeServiceClient
@@ -117,9 +117,9 @@ func (p *Provider) refreshNodeState(ctx context.Context) (retErr error) {
 }
 
 // Initialize the CRI APIs required
-func getClientAPIs(criSocketPath string) (criapi.RuntimeServiceClient, criapi.ImageServiceClient, error) {
+func getClientAPIs(criEndpoint string) (criapi.RuntimeServiceClient, criapi.ImageServiceClient, error) {
 	// Set up a connection to the server.
-	conn, err := getClientConnection(criSocketPath)
+	conn, err := getClientConnection(criEndpoint)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect: %v", err)
 	}
@@ -139,8 +139,8 @@ func unixDialer(addr string, timeout time.Duration) (net.Conn, error) {
 }
 
 // Initialize CRI client connection
-func getClientConnection(criSocketPath string) (*grpc.ClientConn, error) {
-	conn, err := grpc.Dial(criSocketPath, grpc.WithInsecure(), grpc.WithTimeout(10*time.Second), grpc.WithDialer(unixDialer))
+func getClientConnection(criEndpoint string) (*grpc.ClientConn, error) {
+	conn, err := grpc.Dial(criEndpoint, grpc.WithInsecure(), grpc.WithTimeout(10*time.Second), grpc.WithDialer(unixDialer))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %v", err)
 	}
@@ -148,8 +148,9 @@ func getClientConnection(criSocketPath string) (*grpc.ClientConn, error) {
 }
 
 // Create a new Provider
-func NewProvider(nodeName, operatingSystem string, internalIP string, resourceManager *manager.ResourceManager, daemonEndpointPort int32) (*Provider, error) {
-	runtimeClient, imageClient, err := getClientAPIs(CriSocketPath)
+func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, resourceManager *manager.ResourceManager, daemonEndpointPort int32) (*Provider, error) {
+	var criEndpoint string = nodeIP + CriPort
+	runtimeClient, imageClient, err := getClientAPIs(criEndpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -160,16 +161,17 @@ func NewProvider(nodeName, operatingSystem string, internalIP string, resourceMa
 		nodeName:           nodeName,
 		operatingSystem:    operatingSystem,
 		internalIP:         internalIP,
+		nodeIP:             nodeIP,
 		daemonEndpointPort: daemonEndpointPort,
 		podStatus:          make(map[types.UID]CRIPod),
 		runtimeClient:      runtimeClient,
 		imageClient:        imageClient,
 	}
-	err = os.MkdirAll(provider.podLogRoot, PodLogRootPerms)
+	err = mkdirAll(provider.podLogRoot, PodLogRootPerms)
 	if err != nil {
 		return nil, err
 	}
-	err = os.MkdirAll(provider.podVolRoot, PodVolRootPerms)
+	err = mkdirAll(provider.podVolRoot, PodVolRootPerms)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +349,7 @@ func createCtrMounts(ctx context.Context, container *v1.Container, pod *v1.Pod, 
 			// TODO: Currently ignores the SizeLimit
 			newMount.HostPath = filepath.Join(podVolRoot, mountSpec.Name)
 			// TODO: Maybe not the best place to modify the filesystem, but clear enough for now
-			err := os.MkdirAll(newMount.HostPath, PodVolPerms)
+			err := mkdirAll(newMount.HostPath, PodVolPerms)
 			if err != nil {
 				return nil, errors.Wrapf(err, "error making emptyDir for path %s", newMount.HostPath)
 			}
@@ -355,7 +357,7 @@ func createCtrMounts(ctx context.Context, container *v1.Container, pod *v1.Pod, 
 			spec := podVolSpec.Secret
 			podSecretDir := filepath.Join(podVolRoot, PodSecretVolDir, mountSpec.Name)
 			newMount.HostPath = podSecretDir
-			err := os.MkdirAll(newMount.HostPath, PodSecretVolPerms)
+			err := mkdirAll(newMount.HostPath, PodSecretVolPerms)
 			if err != nil {
 				return nil, errors.Wrapf(err, "error making secret dir for path %s", newMount.HostPath)
 			}
@@ -385,7 +387,7 @@ func createCtrMounts(ctx context.Context, container *v1.Container, pod *v1.Pod, 
 			spec := podVolSpec.ConfigMap
 			podConfigMapDir := filepath.Join(podVolRoot, PodConfigMapVolDir, mountSpec.Name)
 			newMount.HostPath = podConfigMapDir
-			err := os.MkdirAll(newMount.HostPath, PodConfigMapVolPerms)
+			err := mkdirAll(newMount.HostPath, PodConfigMapVolPerms)
 			if err != nil {
 				return nil, fmt.Errorf("Error making configmap dir for path %s: %v", newMount.HostPath, err)
 			}
@@ -486,11 +488,11 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 	// TODO: Should delete the sandbox if container creation fails
 	var pId string
 	if existing == nil {
-		err = os.MkdirAll(logPath, 0755)
+		err = mkdirAll(logPath, 0755)
 		if err != nil {
 			return err
 		}
-		err = os.MkdirAll(volPath, 0755)
+		err = mkdirAll(volPath, 0755)
 		if err != nil {
 			return err
 		}
@@ -566,7 +568,7 @@ func (p *Provider) deletePod(ctx context.Context, pod *v1.Pod) error {
 
 	// Remove any emptyDir volumes
 	// TODO: Is there other cleanup that needs to happen here?
-	err = os.RemoveAll(filepath.Join(p.podVolRoot, string(pod.UID)))
+	err = removeAll(filepath.Join(p.podVolRoot, string(pod.UID)))
 	if err != nil {
 		log.G(ctx).Debug(err)
 	}
@@ -606,18 +608,11 @@ func (p *Provider) getPod(ctx context.Context, namespace, name string) (*v1.Pod,
 
 // Reads a log file into a string
 func readLogFile(filename string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	file, err := os.Open(filename)
+	lines, err := scanFile(filename)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
 
-	// TODO: This is not an efficient algorithm for tailing very large logs files
-	scanner := bufio.NewScanner(file)
-	lines := []string{}
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
 	if opts.Tail > 0 && opts.Tail < len(lines) {
 		lines = lines[len(lines)-opts.Tail:]
 	}
@@ -903,12 +898,17 @@ func (p *Provider) nodeConditions() []v1.NodeCondition {
 
 // Provider function to return a list of node addresses
 func (p *Provider) nodeAddresses() []v1.NodeAddress {
-	return []v1.NodeAddress{
-		{
-			Type:    "InternalIP",
-			Address: p.internalIP,
-		},
+	addresses := []v1.NodeAddress{v1.NodeAddress{
+		Type:    "InternalIP",
+		Address: p.internalIP,
+	}}
+	if p.nodeIP != "" && p.nodeIP != "127.0.0.1" {
+		addresses = append(addresses, v1.NodeAddress{
+			Type:    "ExternalIP",
+			Address: p.nodeIP,
+		})
 	}
+	return addresses
 }
 
 // Provider function to return the daemon endpoint

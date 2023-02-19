@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -37,6 +38,10 @@ var (
 	k8sVersion   = "v1.15.2" // This should follow the version of k8s.io/kubernetes we are importing
 )
 
+var (
+	nodeIP = "127.0.0.1"
+)
+
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -53,6 +58,21 @@ func main() {
 		},
 	}
 
+	// agent and IP address
+	nodeIP = os.Getenv("REMOTE_IP")
+	if nodeIP == "" {
+		nodeIP = "127.0.0.1"
+	}
+	criPort := os.Getenv("CRI_PORT")
+	if criPort != "" {
+		cri.CriPort = ":" + criPort
+	}
+
+	agentPort := os.Getenv("AGENT_PORT")
+	if agentPort != "" {
+		cri.AgentPort = ":" + agentPort
+	}
+
 	o := opts.New()
 	o.Provider = "cri"
 	o.Version = strings.Join([]string{k8sVersion, "vk-cri", buildVersion}, "-")
@@ -60,7 +80,7 @@ func main() {
 		cli.WithBaseOpts(o),
 		cli.WithCLIVersion(buildVersion, buildTime),
 		cli.WithProvider("cri", func(cfg provider.InitConfig) (provider.Provider, error) {
-			return cri.NewProvider(cfg.NodeName, cfg.OperatingSystem, cfg.InternalIP, cfg.ResourceManager, cfg.DaemonPort)
+			return cri.NewProvider(cfg.NodeName, cfg.OperatingSystem, nodeIP, cfg.InternalIP, cfg.ResourceManager, cfg.DaemonPort)
 		}),
 		cli.WithPersistentFlags(logConfig.FlagSet()),
 		cli.WithPersistentPreRunCallback(func() error {
@@ -78,4 +98,8 @@ func main() {
 	if err := node.Run(); err != nil {
 		log.G(ctx).Fatal(err)
 	}
+}
+
+func init() {
+	log.L.Info("virtual kubelet run")
 }
