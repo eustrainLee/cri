@@ -11,8 +11,8 @@ require (
 	github.com/virtual-kubelet/node-cli v0.1.2
 	github.com/virtual-kubelet/virtual-kubelet v1.2.0
 	go.opencensus.io v0.22.0
-	golang.org/x/net v0.0.0-20191004110552-13f9640d40b9
-	google.golang.org/grpc v1.23.1
+	golang.org/x/net v0.3.1-0.20221206200815-1e63c2f08a10
+	google.golang.org/grpc v1.49.0
 	k8s.io/api v0.0.0
 	k8s.io/apimachinery v0.0.0
 	k8s.io/client-go v11.0.0+incompatible // indirect
@@ -31,7 +31,7 @@ replace k8s.io/apiserver => k8s.io/apiserver v0.0.0-20190805142138-368b2058237c
 
 replace k8s.io/csi-translation-lib => k8s.io/csi-translation-lib v0.0.0-20190805144531-3985229e1802
 
-replace k8s.io/cri-api => k8s.io/cri-api v0.0.0-20190531030430-6117653b35f1
+replace k8s.io/cri-api => k8s.io/cri-api v0.26.1
 
 replace k8s.io/kube-aggregator => k8s.io/kube-aggregator v0.0.0-20190805142416-fd821fbbb94e
 

@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
-	criapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	criapi "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 // TODO: Make these configurable
@@ -898,7 +898,7 @@ func (p *Provider) nodeConditions() []v1.NodeCondition {
 
 // Provider function to return a list of node addresses
 func (p *Provider) nodeAddresses() []v1.NodeAddress {
-	addresses := []v1.NodeAddress{v1.NodeAddress{
+	addresses := []v1.NodeAddress{{
 		Type:    "InternalIP",
 		Address: p.internalIP,
 	}}
