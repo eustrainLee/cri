@@ -176,6 +176,10 @@ func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, re
 		return nil, err
 	}
 
+	if !heart() {
+		return nil, errors.New("connect agent failed")
+	}
+
 	p := &provider
 	return p, err
 }
