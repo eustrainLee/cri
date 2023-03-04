@@ -3,8 +3,8 @@
  * @Date: 2022-01-11 18:45:23
  * @Description: JSONRPC 2.0 Server
  */
-#ifndef __LITE_RPC__
-#define __LITE_RPC__
+#ifndef LITE_RPC__
+#define LITE_RPC__
 
 #include <new>
 #include <mutex>

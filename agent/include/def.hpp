@@ -1,8 +1,5 @@
-
-
-
-#ifndef __LITE_RPC_DEF__
-#define __LITE_RPC_DEF__
+#ifndef LITE_RPC_DEF
+#define LITE_RPC_DEF
 
 #include <functional>
 #include <memory>

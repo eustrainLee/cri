@@ -1,3 +1,6 @@
+#ifndef JSONRPC_HTTP
+#define JSONRPC_HTTP
+
 #include "httplib.hpp"
 #include "json.hpp"
 // This is an headonly http-based version of jsonrpc1.0 only
@@ -99,3 +102,5 @@ namespace rpc {
         }
     }
 }
+
+#endif
