@@ -70,7 +70,11 @@ func main() {
 
 	agentPort := os.Getenv("AGENT_PORT")
 	if agentPort != "" {
-		cri.AgentPort = nodeIP + ":" + agentPort
+		if agentPort == "local" {
+			cri.AgentPort = ":40002"
+		} else {
+			cri.AgentPort = nodeIP + ":" + agentPort
+		}
 	}
 
 	o := opts.New()
