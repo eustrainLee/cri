@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -19,6 +17,7 @@ import (
 	"github.com/virtual-kubelet/virtual-kubelet/node/api"
 	"github.com/virtual-kubelet/virtual-kubelet/trace"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	v1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -131,16 +130,20 @@ func getClientAPIs(criEndpoint string) (criapi.RuntimeServiceClient, criapi.Imag
 	if ic == nil {
 		return nil, nil, fmt.Errorf("failed to create image service client")
 	}
+	ver, err2 := rc.Version(context.TODO(), &criapi.VersionRequest{})
+	fmt.Println("version:", ver, "err:", err2)
 	return rc, ic, err
 }
 
-func unixDialer(addr string, timeout time.Duration) (net.Conn, error) {
-	return net.DialTimeout("unix", addr, timeout)
-}
+// func unixDialer(addr string, timeout time.Duration) (net.Conn, error) {
+// 	return net.DialTimeout("unix", addr, timeout)
+// }
 
 // Initialize CRI client connection
 func getClientConnection(criEndpoint string) (*grpc.ClientConn, error) {
-	conn, err := grpc.Dial(criEndpoint, grpc.WithInsecure(), grpc.WithTimeout(10*time.Second), grpc.WithDialer(unixDialer))
+	fmt.Println("connecting endpoint:", criEndpoint)
+	// conn, err := grpc.Dial(criEndpoint, grpc.WithInsecure(), grpc.WithTimeout(10*time.Second), grpc.WithDialer(unixDialer))
+	conn, err := grpc.Dial(criEndpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithTimeout(10*time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %v", err)
 	}
@@ -149,7 +152,7 @@ func getClientConnection(criEndpoint string) (*grpc.ClientConn, error) {
 
 // Create a new Provider
 func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, resourceManager *manager.ResourceManager, daemonEndpointPort int32) (*Provider, error) {
-	var criEndpoint string = nodeIP + CriPort
+	var criEndpoint string = CriPort
 	runtimeClient, imageClient, err := getClientAPIs(criEndpoint)
 	if err != nil {
 		return nil, err
@@ -840,7 +843,7 @@ func (p *Provider) capacity(ctx context.Context) v1.ResourceList {
 	}
 
 	var cpuQ resource.Quantity
-	cpuQ.Set(int64(runtime.NumCPU()))
+	cpuQ.Set(int64(numCPU()))
 	var memQ resource.Quantity
 	memQ.Set(int64(getSystemTotalMemory()))
 

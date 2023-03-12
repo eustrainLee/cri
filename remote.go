@@ -2,17 +2,17 @@ package cri
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"net/rpc"
 	"net/rpc/jsonrpc"
 	"os"
+	"runtime"
 )
 
 func heart() bool {
 	conn, err := net.Dial("tcp", AgentPort)
 	if err != nil {
-		log.Fatal("dial error:", err)
+		fmt.Println("dial error:", err)
 	}
 
 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
@@ -21,7 +21,7 @@ func heart() bool {
 
 	err = client.Call("heart", nil, &save)
 	if err != nil {
-		log.Fatal("scanFile error:", err)
+		fmt.Println("scanFile error:", err)
 		return false
 	}
 	return save
@@ -30,7 +30,7 @@ func heart() bool {
 func getSystemTotalMemory() uint64 {
 	conn, err := net.Dial("tcp", AgentPort)
 	if err != nil {
-		log.Fatal("dial error:", err)
+		fmt.Println("dial error:", err)
 	}
 
 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
@@ -38,16 +38,22 @@ func getSystemTotalMemory() uint64 {
 	var memory uint64
 	err = client.Call("getSystemTotalMemory", nil, &memory)
 	if err != nil {
-		log.Fatal("getSystemTotalMemory error:", err)
+		fmt.Println("getSystemTotalMemory error:", err)
 	}
-	log.Fatal("getSystemTotalMemory:", memory)
+	conn.Close()
+	fmt.Println("getSystemTotalMemory:", memory)
 	return memory
+}
+
+func numCPU() int {
+	// TODO:
+	return runtime.NumCPU()
 }
 
 func scanFile(filename string) ([]string, error) {
 	conn, err := net.Dial("tcp", AgentPort)
 	if err != nil {
-		log.Fatal("dial error:", err)
+		fmt.Println("dial error:", err)
 	}
 
 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
@@ -56,7 +62,7 @@ func scanFile(filename string) ([]string, error) {
 
 	err = client.Call("scanFile", &filename, &lines)
 	if err != nil {
-		log.Fatal("scanFile error:", err)
+		fmt.Println("scanFile error:", err)
 	}
 	return lines, nil
 }
@@ -69,7 +75,7 @@ type mkdirAllArgs struct {
 func mkdirAll(path string, perm os.FileMode) error {
 	conn, err := net.Dial("tcp", AgentPort)
 	if err != nil {
-		log.Fatal("dial error:", err)
+		fmt.Println("dial error:", err)
 	}
 
 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
@@ -80,7 +86,7 @@ func mkdirAll(path string, perm os.FileMode) error {
 	var mked bool
 	err = client.Call("mkdirAll", &args, &mked)
 	if err != nil {
-		log.Fatal("mkdirAll error:", err)
+		fmt.Println("mkdirAll error:", err)
 		return err
 	}
 	_ = mked
@@ -90,7 +96,7 @@ func mkdirAll(path string, perm os.FileMode) error {
 func removeAll(path string) error {
 	conn, err := net.Dial("tcp", AgentPort)
 	if err != nil {
-		log.Fatal("dial error:", err)
+		fmt.Println("dial error:", err)
 	}
 
 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
@@ -98,7 +104,7 @@ func removeAll(path string) error {
 	var rmed bool
 	err = client.Call("mkdirAll", &path, &rmed)
 	if err != nil {
-		log.Fatal("mkdirAll error:", err)
+		fmt.Println("mkdirAll error:", err)
 		return err
 	}
 	_ = rmed

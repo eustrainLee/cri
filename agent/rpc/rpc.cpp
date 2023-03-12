@@ -907,7 +907,7 @@ namespace rpc {
         ) {
             return false;
         }
-        return this->listen("127.0.0.1", port);
+        return this->listen(ip.c_str(), port);
     }
 
     void Server::close() {

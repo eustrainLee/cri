@@ -35,7 +35,8 @@ import (
 var (
 	buildVersion = "N/A"
 	buildTime    = "N/A"
-	k8sVersion   = "v1.15.2" // This should follow the version of k8s.io/kubernetes we are importing
+	// k8sVersion   = "v1.15.2" // This should follow the version of k8s.io/kubernetes we are importing
+	k8sVersion = "v1.21.9"
 )
 
 var (
@@ -46,7 +47,6 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ctx = cli.ContextWithCancelOnSignal(ctx)
-
 	logger := logrus.StandardLogger()
 	log.L = logruslogger.FromLogrus(logrus.NewEntry(logger))
 	logConfig := &logruscli.Config{LogLevel: "info"}
@@ -65,16 +65,24 @@ func main() {
 	}
 	criPort := os.Getenv("CRI_PORT")
 	if criPort != "" {
-		cri.CriPort = nodeIP + ":" + criPort
+		if strings.Contains(criPort, ":") {
+			cri.CriPort = criPort
+		} else {
+			cri.CriPort = nodeIP + ":" + criPort
+		}
+	} else {
+		cri.CriPort = nodeIP + ":10350"
 	}
 
 	agentPort := os.Getenv("AGENT_PORT")
 	if agentPort != "" {
-		if agentPort == "local" {
-			cri.AgentPort = ":40002"
+		if strings.Contains(agentPort, ":") {
+			cri.AgentPort = agentPort
 		} else {
 			cri.AgentPort = nodeIP + ":" + agentPort
 		}
+	} else {
+		cri.AgentPort = nodeIP + ":40002"
 	}
 
 	o := opts.New()
