@@ -3,7 +3,20 @@
 请先阅读运行，再阅读编译
 
 # 编译virtual-kubelet
-root权限下在cri目录下执行make build，并将编译后的bin目录移到别处
+
+首先运行
+
+```shell
+docker login
+```
+
+登录到docker镜像仓库后，运行
+
+```shell
+docker-build
+```
+
+构建镜像，在日志中可以看到输出的镜像名，记下来
 
 ```shell
 make build && mv ./bin ../ && cd ..
@@ -23,15 +36,26 @@ g++ -std=c++17 -pthread -Iinclude ./rpc/* agent.cpp -Os -o agent
 
 关闭swap
 
-使用kubeadm、minikube、micro等工具创建一个k8s集群
-安装cilium作为CNI插件
-	安装helm3
-	bash <(curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3)
-	通过helm3安装部署cilium
-	helm repo add cilium https://helm.cilium.io
-	helm install cilium cilium/cilium -n kube-system --set hubble.relay.enabled=true --set hubble.ui.enabled=true --set operator.replicas=1
-通过命令kubectl get pods -n kube-system查看容器状态，等待cilium容器全部启动
+安装满足CRI规范的容器管理引擎，如containerd
 
+使用kubeadm、minikube、micro等工具创建一个k8s集群
+
+安装`cilium`作为CNI插件(可选)
+
+安装helm3
+
+```shell
+bash <(curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3)
+```
+
+通过helm3安装部署cilium
+
+```shell
+helm repo add cilium https://helm.cilium.io
+helm install cilium cilium/cilium -n kube-system --set hubble.relay.enabled=true --set hubble.ui.enabled=true --set operator.replicas=1
+```
+
+通过命令`kubectl get pods -n kube-system`查看容器状态，等待`cilium`容器全部启动
 
 # 启动所有agent
 
@@ -92,10 +116,10 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["pods"]
-  verbs: ["get", "watch", "list", "update"]
+  verbs: ["create", "get", "watch", "list", "update", "patch", "delete", "deletecollection"]
 - apiGroups: [""]
   resources: ["node"]
-  verbs: ["get", "watch", "list", "update"]
+  verbs: ["create", "get", "watch", "list", "update", "patch", "delete", "deletecollection"]
 - apiGroups: [""]
   resources: ["secrets"]
   verbs: ["get", "watch", "list"]
@@ -137,7 +161,7 @@ roleRef:
 
 # 创建pod
 
-编写yaml文件
+编写yaml文件，image处要改成上面记录的镜像名，记得前面带上镜像仓库的名称
 
 ```yaml
 apiVersion: v1
@@ -149,7 +173,7 @@ spec:
   serviceAccountName: "hrg/hrglet"
   containers:
   - name: hrglet
-    image: eustrain/hrglet:7c65c2c-dev
+    image: eustrain/hrglet:7c65c2c
     ports:
     - containerPort: 10250
     env:
@@ -167,7 +191,7 @@ spec:
       value: "10250"
     command: ["hrglet"]
     args: [
-      "--provider", "cri", "--kubeconfig", "/etc/kubernetes/admin.conf", "--nodename", "hrglet01"
+      "--provider", "hrgcri", "--kubeconfig", "/etc/kubernetes/admin.conf", "--nodename", "hrglet01"
     ]
     volumeMounts:
     - mountPath: "/etc/kubernetes"
