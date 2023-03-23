@@ -10,12 +10,16 @@ import (
 	"golang.org/x/net/context"
 	v1 "k8s.io/api/core/v1"
 	criapi "k8s.io/cri-api/pkg/apis/runtime/v1"
+	"k8s.io/klog"
 )
 
 // Call RunPodSandbox on the CRI client
 func runPodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, config *criapi.PodSandboxConfig) (string, error) {
 	ctx, span := trace.StartSpan(ctx, "cri.getPodSandboxes")
 	defer span.End()
+
+	fmt.Println("run pod sandbox")
+	defer fmt.Println("leave run pod sandbox")
 
 	request := &criapi.RunPodSandboxRequest{Config: config}
 	log.G(ctx).Debug("RunPodSandboxRequest")
@@ -27,6 +31,7 @@ func runPodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, conf
 		return "", err
 	}
 	log.G(ctx).Debug("New pod sandbox created")
+	fmt.Println("run pod sandbox done")
 	return r.PodSandboxId, nil
 }
 
@@ -34,6 +39,8 @@ func runPodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, conf
 func stopPodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, id string) error {
 	ctx, span := trace.StartSpan(ctx, "cri.getPodSandboxes")
 	defer span.End()
+	fmt.Println("stop pod sandbox")
+	defer fmt.Println("leave stop pod sandbox")
 	if id == "" {
 		err := errdefs.InvalidInput("ID cannot be empty")
 		span.SetStatus(err)
@@ -49,12 +56,15 @@ func stopPodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, id 
 	}
 
 	log.G(ctx).Debugf("Stopped sandbox %s", id)
+	fmt.Println("stop pod sandbox done")
 	return nil
 }
 
 // Call RemovePodSandbox on the CRI client
 func removePodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, id string) error {
-	ctx, span := trace.StartSpan(ctx, "cri.getPodSandboxes")
+	ctx, span := trace.StartSpan(ctx, "cri.removePodSandboxes")
+	fmt.Println("remove pod sandbox")
+	defer fmt.Println("leave remove pod sandbox")
 	defer span.End()
 	if id == "" {
 		err := errdefs.InvalidInput("ID cannot be empty")
@@ -70,19 +80,23 @@ func removePodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, i
 		return err
 	}
 	log.G(ctx).Debugf("Removed sandbox %s", id)
+	fmt.Println("remove pod sandbox done")
 	return nil
 }
 
 // Call ListPodSandbox on the CRI client
 func getPodSandboxes(ctx context.Context, client criapi.RuntimeServiceClient) ([]*criapi.PodSandbox, error) {
 	ctx, span := trace.StartSpan(ctx, "cri.getPodSandboxes")
+	fmt.Println("get pod sandboxes")
+	defer fmt.Println("leave get pod sandboxes")
+
 	defer span.End()
 
 	filter := &criapi.PodSandboxFilter{}
 	request := &criapi.ListPodSandboxRequest{
 		Filter: filter,
 	}
-
+	fmt.Println("request:", request)
 	log.G(ctx).Debug("ListPodSandboxRequest")
 	r, err := client.ListPodSandbox(context.Background(), request)
 
@@ -91,6 +105,7 @@ func getPodSandboxes(ctx context.Context, client criapi.RuntimeServiceClient) ([
 		span.SetStatus(err)
 		return nil, err
 	}
+	fmt.Println("get pod sandboxes done")
 	return r.GetItems(), err
 }
 
@@ -98,6 +113,8 @@ func getPodSandboxes(ctx context.Context, client criapi.RuntimeServiceClient) ([
 func getPodSandboxStatus(ctx context.Context, client criapi.RuntimeServiceClient, psId string) (*criapi.PodSandboxStatus, error) {
 	ctx, span := trace.StartSpan(ctx, "cri.getPodSandboxStatus")
 	defer span.End()
+	fmt.Println("get pod sandbox status")
+	defer fmt.Println("leave get pod sandbox status")
 
 	if psId == "" {
 		err := errdefs.InvalidInput("Pod ID cannot be empty in GPSS")
@@ -118,6 +135,7 @@ func getPodSandboxStatus(ctx context.Context, client criapi.RuntimeServiceClient
 		return nil, err
 	}
 
+	fmt.Println("get pod sandbox status done")
 	return r.Status, nil
 }
 
@@ -125,6 +143,8 @@ func getPodSandboxStatus(ctx context.Context, client criapi.RuntimeServiceClient
 func createContainer(ctx context.Context, client criapi.RuntimeServiceClient, config *criapi.ContainerConfig, podConfig *criapi.PodSandboxConfig, pId string) (string, error) {
 	ctx, span := trace.StartSpan(ctx, "cri.createContainer")
 	defer span.End()
+	fmt.Println("create container")
+	defer fmt.Println("leave create container")
 
 	request := &criapi.CreateContainerRequest{
 		PodSandboxId:  pId,
@@ -139,6 +159,7 @@ func createContainer(ctx context.Context, client criapi.RuntimeServiceClient, co
 		return "", err
 	}
 	log.G(ctx).Debugf("Container created: %s", r.ContainerId)
+	fmt.Println("create container done")
 	return r.ContainerId, nil
 }
 
@@ -146,6 +167,8 @@ func createContainer(ctx context.Context, client criapi.RuntimeServiceClient, co
 func startContainer(ctx context.Context, client criapi.RuntimeServiceClient, cId string) error {
 	ctx, span := trace.StartSpan(ctx, "cri.startContainer")
 	defer span.End()
+	fmt.Println("start container")
+	defer fmt.Println("leave start container")
 
 	if cId == "" {
 		err := errdefs.InvalidInput("ID cannot be empty")
@@ -163,6 +186,7 @@ func startContainer(ctx context.Context, client criapi.RuntimeServiceClient, cId
 		return err
 	}
 	log.G(ctx).Debugf("Container started: %s", cId)
+	fmt.Println("start container done")
 	return nil
 }
 
@@ -170,6 +194,8 @@ func startContainer(ctx context.Context, client criapi.RuntimeServiceClient, cId
 func getContainerCRIStatus(ctx context.Context, client criapi.RuntimeServiceClient, cId string) (*criapi.ContainerStatus, error) {
 	ctx, span := trace.StartSpan(ctx, "cri.getContainerCRIStatus")
 	defer span.End()
+	fmt.Println("get container cri status")
+	defer fmt.Println("leave get container cri status")
 
 	if cId == "" {
 		err := errdefs.InvalidInput("Container ID cannot be empty in GCCS")
@@ -188,7 +214,7 @@ func getContainerCRIStatus(ctx context.Context, client criapi.RuntimeServiceClie
 		span.SetStatus(err)
 		return nil, err
 	}
-
+	fmt.Println("get container cri status done")
 	return r.Status, nil
 }
 
@@ -222,8 +248,10 @@ func pullImage(ctx context.Context, client criapi.ImageServiceClient, image stri
 			Image: image,
 		},
 	}
+	klog.Info("pull image request:", request)
 	log.G(ctx).Debug("PullImageRequest")
 	r, err := client.PullImage(context.Background(), request)
+	klog.Info("pull image response:", r)
 	log.G(ctx).Debug("PullImageResponse")
 	if err != nil {
 		span.SetStatus(err)

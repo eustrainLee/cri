@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	criapi "k8s.io/cri-api/pkg/apis/runtime/v1"
+	"k8s.io/klog"
 )
 
 // TODO: Make these configurable
@@ -465,6 +466,7 @@ func createCtrLinuxConfig(container *v1.Container, pod *v1.Pod) *criapi.LinuxCon
 
 // Provider function to create a Pod
 func (p *Provider) CreatePod(ctx context.Context, pod *v1.Pod) error {
+	klog.Info("Create pod:", pod)
 	ctx, span := trace.StartSpan(ctx, "cri.CreatePod")
 	defer span.End()
 	ctx = span.WithFields(ctx, log.Fields{
@@ -477,7 +479,7 @@ func (p *Provider) CreatePod(ctx context.Context, pod *v1.Pod) error {
 
 func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 	log.G(ctx).Debugf("receive CreatePod %q", pod.Name)
-
+	klog.Infof("receive CreatePod %q", pod.Name)
 	var attempt uint32 // TODO: Track attempts. Currently always 0
 	logPath := filepath.Join(p.podLogRoot, string(pod.UID))
 	volPath := filepath.Join(p.podVolRoot, string(pod.UID))
@@ -504,6 +506,7 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 			return err
 		}
 		// TODO: Is there a race here?
+		klog.Info("rand sandbox", pConfig)
 		pId, err = runPodSandbox(ctx, p.runtimeClient, pConfig)
 		if err != nil {
 			return err
@@ -514,11 +517,13 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 
 	for _, c := range pod.Spec.Containers {
 		log.G(ctx).Debugf("Pulling image %s", c.Image)
+		klog.Info("Pulling image", c.Image)
 		imageRef, err := pullImage(ctx, p.imageClient, c.Image)
 		if err != nil {
 			return err
 		}
 		log.G(ctx).Debugf("Creating container %s", c.Name)
+		klog.Info("Creating container", c.Name)
 		cConfig, err := generateContainerConfig(ctx, &c, pod, imageRef, volPath, p.resourceManager, attempt)
 		if err != nil {
 			return err
@@ -528,6 +533,7 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 			return err
 		}
 		log.G(ctx).Debugf("Starting container %s", c.Name)
+		klog.Infof("Starting container %s", c.Name)
 		err = startContainer(ctx, p.runtimeClient, cId)
 	}
 
@@ -537,7 +543,7 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 // Update is currently not required or even called by VK, so not implemented
 func (p *Provider) UpdatePod(ctx context.Context, pod *v1.Pod) error {
 	log.G(ctx).Debugf("receive UpdatePod %q", pod.Name)
-
+	klog.Info("update pod:", pod, ". The method has not implemented.")
 	return nil
 }
 
@@ -545,6 +551,7 @@ func (p *Provider) UpdatePod(ctx context.Context, pod *v1.Pod) error {
 func (p *Provider) DeletePod(ctx context.Context, pod *v1.Pod) error {
 	ctx, span := trace.StartSpan(ctx, "cri.DeletePod")
 	defer span.End()
+	klog.Info("delete pod:", pod)
 	ctx = span.WithFields(ctx, log.Fields{
 		"pod": path.Join(pod.GetNamespace(), pod.GetName()),
 	})
@@ -587,6 +594,7 @@ func (p *Provider) deletePod(ctx context.Context, pod *v1.Pod) error {
 
 // Provider function to return a Pod spec - mostly used for its status
 func (p *Provider) GetPod(ctx context.Context, namespace, name string) (*v1.Pod, error) {
+	klog.Info("Get pod: namespace ", namespace, ",name ", name)
 	ctx, span := trace.StartSpan(ctx, "cri.GetPod")
 	defer span.End()
 	ctx = span.WithFields(ctx, log.Fields{
@@ -629,7 +637,7 @@ func readLogFile(filename string, opts api.ContainerLogOpts) (io.ReadCloser, err
 // Provider function to read the logs of a container
 func (p *Provider) GetContainerLogs(ctx context.Context, namespace, podName, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
 	log.G(ctx).Debugf("receive GetContainerLogs %q", containerName)
-
+	klog.Info("Get container logs: namespace ", namespace, ", pod name ", podName, ", opts ", opts)
 	err := p.refreshNodeState(ctx)
 	if err != nil {
 		return nil, err
@@ -652,6 +660,7 @@ func (p *Provider) GetContainerLogs(ctx context.Context, namespace, podName, con
 // TODO: Implementation
 func (p *Provider) RunInContainer(ctx context.Context, namespace, name, container string, cmd []string, attach api.AttachIO) error {
 	log.G(ctx).Debugf("receive ExecInContainer %q\n", container)
+	klog.Info("Run in container: namespace ", namespace, ", name", name, ", container ", container)
 	return nil
 }
 
@@ -670,6 +679,7 @@ func (p *Provider) findPodByName(namespace, name string) *CRIPod {
 
 // Provider function to return the status of a Pod
 func (p *Provider) GetPodStatus(ctx context.Context, namespace, name string) (*v1.PodStatus, error) {
+	klog.Info("Get pod status: namespace ", namespace, ", name ", name)
 	ctx, span := trace.StartSpan(ctx, "cri.GetPodStatus")
 	defer span.End()
 	ctx = span.WithFields(ctx, log.Fields{
@@ -677,6 +687,7 @@ func (p *Provider) GetPodStatus(ctx context.Context, namespace, name string) (*v
 	})
 	pod, err := p.getPodStatus(ctx, namespace, name)
 	span.SetStatus(err)
+	klog.Info("Get pod status result:", pod)
 	return pod, err
 }
 
@@ -812,6 +823,7 @@ func createPodSpecFromCRI(p *CRIPod, nodeName string) *v1.Pod {
 // TODO: Should this be all pods or just running pods?
 func (p *Provider) GetPods(ctx context.Context) ([]*v1.Pod, error) {
 	log.G(ctx).Debugf("receive GetPods")
+	klog.Info("Get pods")
 
 	var pods []*v1.Pod
 
@@ -823,6 +835,8 @@ func (p *Provider) GetPods(ctx context.Context) ([]*v1.Pod, error) {
 	for _, ps := range p.podStatus {
 		pods = append(pods, createPodSpecFromCRI(&ps, p.nodeName))
 	}
+
+	klog.Info("Get pods result:", pods)
 
 	return pods, nil
 }

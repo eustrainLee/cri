@@ -19,8 +19,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/eustrainLee/cri"
 	"github.com/sirupsen/logrus"
-	"github.com/virtual-kubelet/cri"
 	cli "github.com/virtual-kubelet/node-cli"
 	logruscli "github.com/virtual-kubelet/node-cli/logrus"
 	opencensuscli "github.com/virtual-kubelet/node-cli/opencensus"
@@ -86,12 +86,12 @@ func main() {
 	}
 
 	o := opts.New()
-	o.Provider = "cri"
-	o.Version = strings.Join([]string{k8sVersion, "vk-cri", buildVersion}, "-")
+	o.Provider = "hrgcri"
+	o.Version = strings.Join([]string{k8sVersion, "vk-hrgcri", buildVersion}, "-")
 	node, err := cli.New(ctx,
 		cli.WithBaseOpts(o),
 		cli.WithCLIVersion(buildVersion, buildTime),
-		cli.WithProvider("cri", func(cfg provider.InitConfig) (provider.Provider, error) {
+		cli.WithProvider("hrgcri", func(cfg provider.InitConfig) (provider.Provider, error) {
 			return cri.NewProvider(cfg.NodeName, cfg.OperatingSystem, nodeIP, cfg.InternalIP, cfg.ResourceManager, cfg.DaemonPort)
 		}),
 		cli.WithPersistentFlags(logConfig.FlagSet()),

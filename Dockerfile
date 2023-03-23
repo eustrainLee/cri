@@ -24,4 +24,4 @@ ENV REMOTE_IP ""
 ENV CRI_PORT ""
 ENV AGENT_PORT "40002"
 ENV NODE_NAME "hrglet"
-CMD [ "hrglet", "--provider", "cri", "--kubeconfig", "/etc/kubernetes/admin.conf", "--nodename", "vk01" ]
+CMD [ "hrglet", "--provider", "hrgcri", "--kubeconfig", "/etc/kubernetes/admin.conf", "--nodename", "vk01" ]
