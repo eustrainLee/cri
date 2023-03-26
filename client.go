@@ -3,6 +3,8 @@ package cri
 import (
 	"fmt"
 
+	"encoding/json"
+
 	"github.com/virtual-kubelet/node-cli/manager"
 	"github.com/virtual-kubelet/virtual-kubelet/errdefs"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
@@ -248,10 +250,12 @@ func pullImage(ctx context.Context, client criapi.ImageServiceClient, image stri
 			Image: image,
 		},
 	}
-	klog.Info("pull image request:", request)
+	reqBytes, err := json.Marshal(request)
+	klog.Info("pull image request:", string(reqBytes))
 	log.G(ctx).Debug("PullImageRequest")
 	r, err := client.PullImage(context.Background(), request)
-	klog.Info("pull image response:", r)
+	rspBytes, err := json.Marshal(r)
+	klog.Info("pull image request:", string(rspBytes))
 	log.G(ctx).Debug("PullImageResponse")
 	if err != nil {
 		span.SetStatus(err)

@@ -32,10 +32,6 @@ g++ -std=c++17 -pthread -Iinclude ./rpc/* agent.cpp -Os -o agent
 
 # 准备k8s集群
 
-准备一个k8s集群，如果没有按照如下操作创建
-
-关闭swap
-
 安装满足CRI规范的容器管理引擎，如containerd
 
 使用kubeadm、minikube、micro等工具创建一个k8s集群
@@ -200,7 +196,7 @@ spec:
   volumes:
     - name: k8sconfig
       hostPath:
-      path: "/etc/kubernetes"
+        path: "/etc/kubernetes"
   nodeSelector:
     node-role.kubernetes.io/control-plane: ""
   tolerations:

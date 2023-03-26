@@ -1,6 +1,7 @@
 #include "rpc.hpp"
 #include <sys/sysinfo.h>
 #include <filesystem>
+#include <unistd.h>
 
 struct GetSystemTotalMemoryArg{};
 struct GetSystemTotalMemoryRes{ int64_t value;};
@@ -10,6 +11,19 @@ int64_t getSystemTotalMemory() {
     struct sysinfo info;
     int ret;
     ret = sysinfo(&info);
+    if (ret == -1) {
+        return 0;
+    }
+    return info.totalram * info.mem_unit;
+}
+
+
+int64_t getNumCPU() {
+    ::std::clog << "getNumCPU" << ::std::endl;
+    struct sysinfo info;
+    int ret;
+    // ret = sysinfo(&info);
+    ret = sysconf(_SC_NPROCESSORS_CONF);
     if (ret == -1) {
         return 0;
     }
@@ -79,6 +93,10 @@ nlohmann::json getSystemTotalMemoryWrapped(nlohmann::json const& args) {
     return getSystemTotalMemory();
 }
 
+nlohmann::json getNumCPUWrapped(nlohmann::json const& args) {
+    return getNumCPU();
+}
+
 nlohmann::json heart(nlohmann::json const& args) {
     return true;
 }
@@ -99,6 +117,7 @@ int main(int argc, char* argv[]) {
     server.addMethod("removeAll", removeAllWrapped);
     server.addMethod("scanFile", scanFileWrapped);
     server.addMethod("getSystemTotalMemory", getSystemTotalMemoryWrapped);
+    server.addMethod("getNumCPU", getNumCPUWrapped);
     server.addMethod("heart", heart);
     ::std::cout << "server start" << ::std::endl;
     ::std::string ip = "127.0.0.1";

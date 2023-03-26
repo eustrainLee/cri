@@ -6,7 +6,6 @@ import (
 	"net/rpc"
 	"net/rpc/jsonrpc"
 	"os"
-	"runtime"
 )
 
 func heart() bool {
@@ -47,7 +46,21 @@ func getSystemTotalMemory() uint64 {
 
 func numCPU() int {
 	// TODO:
-	return runtime.NumCPU()
+	conn, err := net.Dial("tcp", AgentPort)
+	if err != nil {
+		fmt.Println("dial error:", err)
+	}
+
+	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
+
+	var numCPU int
+	err = client.Call("getNumCPU", nil, &numCPU)
+	if err != nil {
+		fmt.Println("getNumCPU error:", err)
+	}
+	conn.Close()
+	fmt.Println("getNumCPU:", numCPU)
+	return numCPU
 }
 
 func scanFile(filename string) ([]string, error) {
