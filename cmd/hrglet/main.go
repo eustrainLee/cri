@@ -65,7 +65,9 @@ func main() {
 	}
 	criPort := os.Getenv("CRI_PORT")
 	if criPort != "" {
-		if strings.Contains(criPort, ":") {
+		if strings.HasPrefix(criPort, "unix") {
+			cri.CriPort = criPort
+		} else if strings.Contains(criPort, ":") {
 			cri.CriPort = criPort
 		} else {
 			cri.CriPort = nodeIP + ":" + criPort

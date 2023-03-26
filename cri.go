@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net"
 	"path"
 	"path/filepath"
 	"strings"
@@ -136,15 +137,26 @@ func getClientAPIs(criEndpoint string) (criapi.RuntimeServiceClient, criapi.Imag
 	return rc, ic, err
 }
 
-// func unixDialer(addr string, timeout time.Duration) (net.Conn, error) {
-// 	return net.DialTimeout("unix", addr, timeout)
-// }
+func unixDialer(addr string, timeout time.Duration) (net.Conn, error) {
+	return net.DialTimeout("unix", addr, timeout)
+}
 
 // Initialize CRI client connection
 func getClientConnection(criEndpoint string) (*grpc.ClientConn, error) {
 	fmt.Println("connecting endpoint:", criEndpoint)
-	// conn, err := grpc.Dial(criEndpoint, grpc.WithInsecure(), grpc.WithTimeout(10*time.Second), grpc.WithDialer(unixDialer))
-	conn, err := grpc.Dial(criEndpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithTimeout(10*time.Second))
+	var conn *grpc.ClientConn
+	var err error
+	if strings.HasPrefix(criEndpoint, "unix") {
+		var path string
+		if criEndpoint == "unix" {
+			path = CriSocketPath
+		} else {
+			path = criEndpoint
+		}
+		conn, err = grpc.Dial(path, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithTimeout(10*time.Second), grpc.WithDialer(unixDialer))
+	} else {
+		conn, err = grpc.Dial(criEndpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithTimeout(10*time.Second))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect: %v", err)
 	}
@@ -506,7 +518,7 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 			return err
 		}
 		// TODO: Is there a race here?
-		klog.Info("rand sandbox", pConfig)
+		klog.Info("ran sandbox", pConfig)
 		pId, err = runPodSandbox(ctx, p.runtimeClient, pConfig)
 		if err != nil {
 			return err
