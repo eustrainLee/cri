@@ -111,20 +111,23 @@ metadata:
   name: hrglet-rule
 rules:
 - apiGroups: [""]
-  resources: ["pods"]
-  verbs: ["create", "get", "watch", "list", "update", "patch", "delete", "deletecollection"]
-- apiGroups: [""]
-  resources: ["node"]
-  verbs: ["create", "get", "watch", "list", "update", "patch", "delete", "deletecollection"]
-- apiGroups: [""]
-  resources: ["secrets"]
-  verbs: ["get", "watch", "list"]
-- apiGroups: [""]
-  resources: ["services"]
-  verbs: ["get", "watch", "list"]
-- apiGroups: [""]
-  resources: ["configmaps"]
-  verbs: ["get", "watch", "list"]
+  resources:  
+  - namespaces  
+  - pods  
+  - pods/status  
+  - nodes  
+  - nodes/status  
+  - secrets  
+  - configmaps  
+  verbs:  
+  - create  
+  - update  
+  - get  
+  - watch  
+  - list  
+  - delete 
+  - patch
+  - deletecollection
 ```
 
 ServiceAccount：
