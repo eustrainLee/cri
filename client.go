@@ -3,8 +3,6 @@ package cri
 import (
 	"fmt"
 
-	"encoding/json"
-
 	"github.com/virtual-kubelet/node-cli/manager"
 	"github.com/virtual-kubelet/virtual-kubelet/errdefs"
 	"github.com/virtual-kubelet/virtual-kubelet/log"
@@ -26,18 +24,12 @@ func runPodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, conf
 	request := &criapi.RunPodSandboxRequest{Config: config}
 	log.G(ctx).Debug("RunPodSandboxRequest")
 
-	if reqBytes, err := json.Marshal(request); err != nil {
-		panic("bad request")
-	} else {
-		klog.Info("RunPodSandbox request:", string(reqBytes))
-	}
+	klog.Info("RunPodSandbox request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.RunPodSandbox(context.Background(), request)
 	log.G(ctx).Debug("RunPodSandboxResponse")
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("bad response")
-	} else {
-		klog.Info("RunPodSandbox response:", string(rspBytes))
-	}
+
+	klog.Info("RunPodSandbox response:", fmt.Sprintf("%+v", r))
 	if err != nil {
 		span.SetStatus(err)
 		return "", err
@@ -61,17 +53,11 @@ func stopPodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, id 
 	request := &criapi.StopPodSandboxRequest{PodSandboxId: id}
 	log.G(ctx).Debug("StopPodSandboxRequest")
 
-	if reqBytes, err := json.Marshal(request); err != nil {
-		panic("bad request")
-	} else {
-		klog.Info("StopPodSandbox request:", string(reqBytes))
-	}
+	klog.Info("StopPodSandbox request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.StopPodSandbox(context.Background(), request)
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("bad response")
-	} else {
-		klog.Info("StopPodSandbox response:", string(rspBytes))
-	}
+
+	klog.Info("StopPodSandbox response:", fmt.Sprintf("%+v", r))
 	log.G(ctx).Debug("StopPodSandboxResponse")
 	if err != nil {
 		span.SetStatus(err)
@@ -96,17 +82,12 @@ func removePodSandbox(ctx context.Context, client criapi.RuntimeServiceClient, i
 	}
 	request := &criapi.RemovePodSandboxRequest{PodSandboxId: id}
 	log.G(ctx).Debug("RemovePodSandboxRequest")
-	if reqBytes, err := json.Marshal(request); err != nil {
-		panic("bad request")
-	} else {
-		klog.Info("RemovePodSandbox request:", string(reqBytes))
-	}
+
+	klog.Info("RemovePodSandbox request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.RemovePodSandbox(context.Background(), request)
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("bad response")
-	} else {
-		klog.Info("RemovePodSandbox response:", string(rspBytes))
-	}
+
+	klog.Info("RemovePodSandbox response:", fmt.Sprintf("%+v", r))
 	log.G(ctx).Debug("RemovePodSandboxResponse")
 	if err != nil {
 		span.SetStatus(err)
@@ -131,17 +112,12 @@ func getPodSandboxes(ctx context.Context, client criapi.RuntimeServiceClient) ([
 	}
 	fmt.Println("request:", request)
 	log.G(ctx).Debug("ListPodSandboxRequest")
-	if reqBytes, err := json.Marshal(request); err != nil {
-		panic("bad request")
-	} else {
-		klog.Info("ListPodSandbox request:", string(reqBytes))
-	}
+
+	klog.Info("ListPodSandbox request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.ListPodSandbox(context.Background(), request)
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("bad response")
-	} else {
-		klog.Info("ListPodSandbox response:", string(rspBytes))
-	}
+
+	klog.Info("ListPodSandbox response:", fmt.Sprintf("%+v", r))
 	log.G(ctx).Debug("ListPodSandboxResponse")
 	if err != nil {
 		span.SetStatus(err)
@@ -170,17 +146,12 @@ func getPodSandboxStatus(ctx context.Context, client criapi.RuntimeServiceClient
 	}
 
 	log.G(ctx).Debug("PodSandboxStatusRequest")
-	if reqBytes, err := json.Marshal(request); err != nil {
-		panic("bad request")
-	} else {
-		klog.Info("PodSandboxStatus request:", string(reqBytes))
-	}
+
+	klog.Info("PodSandboxStatus request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.PodSandboxStatus(context.Background(), request)
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("bad response")
-	} else {
-		klog.Info("PodSandboxStatus response:", string(rspBytes))
-	}
+
+	klog.Info("PodSandboxStatus response:", fmt.Sprintf("%+v", r))
 	log.G(ctx).Debug("PodSandboxStatusResponse")
 	if err != nil {
 		span.SetStatus(err)
@@ -204,17 +175,12 @@ func createContainer(ctx context.Context, client criapi.RuntimeServiceClient, co
 		SandboxConfig: podConfig,
 	}
 	log.G(ctx).Debug("CreateContainerRequest")
-	if reqBytes, err := json.Marshal(request); err != nil {
-		panic("bad request")
-	} else {
-		klog.Info("CreateContainer request:", string(reqBytes))
-	}
+
+	klog.Info("CreateContainer request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.CreateContainer(context.Background(), request)
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("bad response")
-	} else {
-		klog.Info("CreateContainer response:", string(rspBytes))
-	}
+
+	klog.Info("CreateContainer response:", fmt.Sprintf("%+v", r))
 	log.G(ctx).Debug("CreateContainerResponse")
 	if err != nil {
 		span.SetStatus(err)
@@ -241,15 +207,12 @@ func startContainer(ctx context.Context, client criapi.RuntimeServiceClient, cId
 		ContainerId: cId,
 	}
 	log.G(ctx).Debug("StartContainerRequestv")
-	if reqBytes, err := json.Marshal(request); err != nil {
-		klog.Info("StartContainer request:", string(reqBytes))
-	}
+
+	klog.Info("StartContainer request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.StartContainer(context.Background(), request)
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("bad response")
-	} else {
-		klog.Info("StartContainer response:", string(rspBytes))
-	}
+
+	klog.Info("StartContainer response:", fmt.Sprintf("%+v", r))
 	log.G(ctx).Debug("StartContainerResponse")
 	if err != nil {
 		span.SetStatus(err)
@@ -278,17 +241,12 @@ func getContainerCRIStatus(ctx context.Context, client criapi.RuntimeServiceClie
 		Verbose:     false,
 	}
 	log.G(ctx).Debug("ContainerStatusRequest")
-	if reqBytes, err := json.Marshal(request); err != nil {
-		panic("bad request")
-	} else {
-		klog.Info("ContainerStatus request:", string(reqBytes))
-	}
+
+	klog.Info("ContainerStatus request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.ContainerStatus(context.Background(), request)
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("bad response")
-	} else {
-		klog.Info("ContainerStatus response:", string(rspBytes))
-	}
+
+	klog.Info("ContainerStatus response:", fmt.Sprintf("%+v", r))
 	log.G(ctx).Debug("ContainerStatusResponsev")
 	if err != nil {
 		span.SetStatus(err)
@@ -309,17 +267,12 @@ func getContainersForSandbox(ctx context.Context, client criapi.RuntimeServiceCl
 		Filter: filter,
 	}
 	log.G(ctx).Debug("ListContainerRequest")
-	if reqBytes, err := json.Marshal(request); err != nil {
-		panic("bad request")
-	} else {
-		klog.Info("ListContainer request:", string(reqBytes))
-	}
+
+	klog.Info("ListContainer request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.ListContainers(context.Background(), request)
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("bad response")
-	} else {
-		klog.Info("ListContainers response:", string(rspBytes))
-	}
+
+	klog.Info("ListContainers response:", fmt.Sprintf("%+v", r))
 	log.G(ctx).Debug("ListContainerResponse")
 	if err != nil {
 		span.SetStatus(err)
@@ -339,17 +292,11 @@ func pullImage(ctx context.Context, client criapi.ImageServiceClient, image stri
 		},
 	}
 	log.G(ctx).Debug("PullImageRequest")
-	if reqBytes, err := json.Marshal(request); err != nil {
-		panic("bad request")
-	} else {
-		klog.Info("PullImage request:", string(reqBytes))
-	}
+
+	klog.Info("PullImage request:", fmt.Sprintf("%+v", request))
+
 	r, err := client.PullImage(context.Background(), request)
-	if rspBytes, err := json.Marshal(r); err != nil {
-		panic("unknown error")
-	} else {
-		klog.Info("PullImage response:", string(rspBytes))
-	}
+	klog.Info("PullImage response:", fmt.Sprintf("%+v", r))
 	log.G(ctx).Debug("PullImageResponse")
 	if err != nil {
 		span.SetStatus(err)
