@@ -53,14 +53,14 @@ func numCPU() int {
 
 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
 
-	var numCPU int
+	var numCPU uint64
 	err = client.Call("getNumCPU", nil, &numCPU)
 	if err != nil {
 		fmt.Println("getNumCPU error:", err)
 	}
 	conn.Close()
 	fmt.Println("getNumCPU:", numCPU)
-	return numCPU
+	return int(numCPU)
 }
 
 func scanFile(filename string) ([]string, error) {

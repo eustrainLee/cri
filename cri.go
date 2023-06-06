@@ -29,7 +29,8 @@ import (
 )
 
 // TODO: Make these configurable
-const CriSocketPath = "/run/containerd/containerd.sock"
+// const CriSocketPath = "/run/containerd/containerd.sock"
+const CriSocketPath = "unix:///run/containerd/containerd.sock"
 const PodLogRoot = "/var/log/vk-cri/"
 const PodVolRoot = "/run/vk-cri/volumes/"
 const PodLogRootPerms = 0755
@@ -62,6 +63,19 @@ type Provider struct {
 	runtimeClient      criapi.RuntimeServiceClient
 	imageClient        criapi.ImageServiceClient
 	notifyStatus       func(*v1.Pod)
+
+	// workaround
+	cachedPods map[CachedPodKey]CachedPod
+}
+
+type CachedPodKey struct {
+	name      string
+	namespace string
+}
+
+type CachedPod struct {
+	id           string
+	containerIds []string
 }
 
 type CRIPod struct {
@@ -143,7 +157,7 @@ func unixDialer(addr string, timeout time.Duration) (net.Conn, error) {
 
 // Initialize CRI client connection
 func getClientConnection(criEndpoint string) (*grpc.ClientConn, error) {
-	fmt.Println("connecting endpoint:", criEndpoint)
+	fmt.Println("get client connection:", criEndpoint)
 	var conn *grpc.ClientConn
 	var err error
 	if strings.HasPrefix(criEndpoint, "unix") {
@@ -153,8 +167,10 @@ func getClientConnection(criEndpoint string) (*grpc.ClientConn, error) {
 		} else {
 			path = criEndpoint
 		}
+		fmt.Println("connecting endpoint:", path)
 		conn, err = grpc.Dial(path, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithTimeout(10*time.Second), grpc.WithDialer(unixDialer))
 	} else {
+		fmt.Println("connecting endpoint:", criEndpoint)
 		conn, err = grpc.Dial(criEndpoint, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithTimeout(10*time.Second))
 	}
 	if err != nil {
@@ -182,6 +198,8 @@ func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, re
 		podStatus:          make(map[types.UID]CRIPod),
 		runtimeClient:      runtimeClient,
 		imageClient:        imageClient,
+
+		cachedPods: make(map[CachedPodKey]CachedPod),
 	}
 	err = mkdirAll(provider.podLogRoot, PodLogRootPerms)
 	if err != nil {
@@ -527,6 +545,7 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 		pId = existing.status.Metadata.Uid
 	}
 
+	containerIds := make([]string, 0)
 	for _, c := range pod.Spec.Containers {
 		log.G(ctx).Debugf("Pulling image %s", c.Image)
 		klog.Info("Pulling image", c.Image)
@@ -547,7 +566,23 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 		log.G(ctx).Debugf("Starting container %s", c.Name)
 		klog.Infof("Starting container %s", c.Name)
 		err = startContainer(ctx, p.runtimeClient, cId)
+		if err != nil {
+			klog.Errorln("start container ", cId, " failed")
+		}
+		containerIds = append(containerIds, cId)
 	}
+
+	p.cachedPods[CachedPodKey{pod.Name, pod.Namespace}] = CachedPod{
+		id:           pId,
+		containerIds: containerIds,
+	}
+
+	time.AfterFunc(5*time.Second, func() {
+		// pod.Status.Phase =
+		newPod := pod.DeepCopy()
+		newPod.Status.Phase = v1.PodRunning
+		p.notifyStatus(newPod)
+	})
 
 	return err
 }
@@ -678,20 +713,71 @@ func (p *Provider) RunInContainer(ctx context.Context, namespace, name, containe
 
 // Find a pod by name and namespace. Pods are indexed by UID
 func (p *Provider) findPodByName(namespace, name string) *CRIPod {
+	// workaround method
 	var found *CRIPod
+	// find pod
+	cachedPod, ok := p.cachedPods[CachedPodKey{name, namespace}]
+	if ok {
+		for _, pod := range p.podStatus {
+			// if pod.status.Metadata.Name == name && pod.status.Metadata.Namespace == namespace {
+			// 	found = &pod
+			// 	break
+			// }
 
-	for _, pod := range p.podStatus {
-		if pod.status.Metadata.Name == name && pod.status.Metadata.Namespace == namespace {
-			found = &pod
-			break
+			// pod found
+			if cachedPod.id == pod.id {
+
+				// list all containers
+				containers := make(map[string]*criapi.ContainerStatus)
+				for name, c := range pod.containers {
+					// _ = name
+					// if c.Id == cachedPod.containers
+					for _, c_id := range cachedPod.containerIds {
+						if c.Id == c_id {
+							containers[name] = c
+						}
+					}
+				}
+				found = &CRIPod{
+					id:         cachedPod.id,
+					containers: containers,
+					status:     pod.status,
+				}
+				// workaround
+				// found.status.State = criapi.PodSandboxState_SANDBOX_READY
+			}
 		}
 	}
 	return found
 }
 
+func (p *Provider) findPodById(id string) *CRIPod {
+	// workaround method
+	var found *CRIPod
+	// find pod
+	for _, pod := range p.podStatus {
+		// if pod.status.Metadata.Name == name && pod.status.Metadata.Namespace == namespace {
+		// 	found = &pod
+		// 	break
+		// }
+
+		// pod found
+		if id == pod.id {
+			found = &CRIPod{
+				id:         pod.id,
+				containers: pod.containers,
+				status:     pod.status,
+			}
+		}
+	}
+
+	return found
+}
+
 // Provider function to return the status of a Pod
 func (p *Provider) GetPodStatus(ctx context.Context, namespace, name string) (*v1.PodStatus, error) {
-	klog.Info("Get pod status: namespace ", namespace, ", name ", name)
+	// klog.Info("Get pod status: namespace ", namespace, ", name ", name)
+	fmt.Println("Get pod status: namespace ", namespace, ", name ", name)
 	ctx, span := trace.StartSpan(ctx, "cri.GetPodStatus")
 	defer span.End()
 	ctx = span.WithFields(ctx, log.Fields{
@@ -700,6 +786,7 @@ func (p *Provider) GetPodStatus(ctx context.Context, namespace, name string) (*v
 	pod, err := p.getPodStatus(ctx, namespace, name)
 	span.SetStatus(err)
 	klog.Info("Get pod status result:", pod)
+	fmt.Println("Get pod status: namespace ", namespace, ", name ", name, "result ", pod)
 	return pod, err
 }
 
@@ -786,10 +873,12 @@ func createPodStatusFromCRI(p *CRIPod) *v1.PodStatus {
 	_, cStatuses := createContainerSpecsFromCRI(p.containers)
 
 	// TODO: How to determine PodSucceeded and PodFailed?
-	phase := v1.PodPending
-	if p.status.State == criapi.PodSandboxState_SANDBOX_READY {
-		phase = v1.PodRunning
-	}
+	// phase := v1.PodPending
+	// if p.status.State == criapi.PodSandboxState_SANDBOX_READY {
+	// 	phase = v1.PodRunning
+	// }
+	phase := v1.PodRunning
+
 	startTime := metav1.NewTime(time.Unix(0, p.status.CreatedAt))
 	return &v1.PodStatus{
 		Phase:             phase,
@@ -954,11 +1043,14 @@ func (p *Provider) nodeDaemonEndpoints() v1.NodeDaemonEndpoints {
 }
 
 func (p *Provider) NotifyPods(ctx context.Context, f func(*v1.Pod)) {
+	fmt.Println("NotifyPods!")
 	p.notifyStatus = f
 	go p.statusLoop(ctx)
 }
 
 func (p *Provider) statusLoop(ctx context.Context) {
+	fmt.Println("statusLoop start")
+	defer fmt.Println("statusLoop exit")
 	t := time.NewTimer(5 * time.Second)
 	if !t.Stop() {
 		<-t.C

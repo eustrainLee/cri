@@ -113,12 +113,30 @@ int main(int argc, char* argv[]) {
         return -1;
     }
     rpc::Server server;
-    server.addMethod("mkdirAll", mkdirAllWrapped);
-    server.addMethod("removeAll", removeAllWrapped);
-    server.addMethod("scanFile", scanFileWrapped);
-    server.addMethod("getSystemTotalMemory", getSystemTotalMemoryWrapped);
-    server.addMethod("getNumCPU", getNumCPUWrapped);
-    server.addMethod("heart", heart);
+    if (!server.addMethod("mkdirAll", mkdirAllWrapped)) {
+        std::cerr << "register mkdirAll failed" << ::std::endl;
+        return -1;
+    }
+    if (!server.addMethod("removeAll", removeAllWrapped)) {
+        std::cerr << "register removeAll failed" << ::std::endl;
+        return -1;
+    }
+    if (!server.addMethod("scanFile", scanFileWrapped)) {
+        std::cerr << "register scanFile failed" << ::std::endl;
+        return -1;
+    }
+    if (!server.addMethod("getSystemTotalMemory", getSystemTotalMemoryWrapped)) {
+        std::cerr << "register getSystemTotalMemory failed" << ::std::endl;
+        return -1;
+    }
+    if (!server.addMethod("getNumCPU", getNumCPUWrapped)) {
+        std::cerr << "register getNumCPU failed" << ::std::endl;
+        return -1;
+    }
+    if (!server.addMethod("heart", heart)) {
+        std::cerr << "register heart failed" << ::std::endl;
+        return -1;
+    }
     ::std::cout << "server start" << ::std::endl;
     ::std::string ip = "127.0.0.1";
     int port = 40002;
@@ -128,5 +146,7 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         ip = argv[1];
     }
-    server.start(ip,port);
+    if (!server.start(ip,port)) {
+        std::cerr << "start server failed" << std::endl;
+    }
 }
