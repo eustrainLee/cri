@@ -328,11 +328,11 @@ func generateContainerConfig(ctx context.Context, container *v1.Container, pod *
 		StdinOnce:   container.StdinOnce,
 		Tty:         container.TTY,
 	}
-	mounts, err := createCtrMounts(ctx, container, pod, podVolRoot, rm)
-	if err != nil {
-		return nil, err
-	}
-	config.Mounts = mounts
+	// mounts, err := createCtrMounts(ctx, container, pod, podVolRoot, rm)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// config.Mounts = mounts
 	return config, nil
 }
 

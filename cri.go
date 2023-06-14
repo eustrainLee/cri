@@ -20,7 +20,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	v1 "k8s.io/api/core/v1"
-	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
@@ -51,6 +50,7 @@ var AgentPort = ":40002"
 //
 //	As such, it is far from functionally complete and never will be. It provides the minimum function necessary
 type Provider struct {
+	// Discard resourceManager
 	resourceManager    *manager.ResourceManager
 	podLogRoot         string
 	podVolRoot         string
@@ -360,103 +360,104 @@ func convertMountPropagationToCRI(input *v1.MountPropagationMode) criapi.MountPr
 }
 
 // Create a CRI specification for the container mounts from the Pod and Container specs
-func createCtrMounts(ctx context.Context, container *v1.Container, pod *v1.Pod, podVolRoot string, rm *manager.ResourceManager) (ls []*criapi.Mount, retErr error) {
-	ctx, span := trace.StartSpan(ctx, "cri.createCtrMounts")
-	defer span.End()
-	defer func() {
-		span.SetStatus(retErr)
-	}()
+// func createCtrMounts(ctx context.Context, container *v1.Container, pod *v1.Pod, podVolRoot string, rm *manager.ResourceManager) (ls []*criapi.Mount, retErr error) {
+// 	ctx, span := trace.StartSpan(ctx, "cri.createCtrMounts")
+// 	defer span.End()
+// 	defer func() {
+// 		span.SetStatus(retErr)
+// 	}()
 
-	mounts := []*criapi.Mount{}
-	for _, mountSpec := range container.VolumeMounts {
-		podVolSpec := findPodVolumeSpec(pod, mountSpec.Name)
-		if podVolSpec == nil {
-			log.G(ctx).Debugf("Container volume mount %s not found in Pod spec", mountSpec.Name)
-			continue
-		}
-		// Common fields to all mount types
-		newMount := criapi.Mount{
-			ContainerPath: filepath.Join(mountSpec.MountPath, mountSpec.SubPath),
-			Readonly:      mountSpec.ReadOnly,
-			Propagation:   convertMountPropagationToCRI(mountSpec.MountPropagation),
-		}
-		// Iterate over the volume types we care about
-		if podVolSpec.HostPath != nil {
-			newMount.HostPath = podVolSpec.HostPath.Path
-		} else if podVolSpec.EmptyDir != nil {
-			// TODO: Currently ignores the SizeLimit
-			newMount.HostPath = filepath.Join(podVolRoot, mountSpec.Name)
-			// TODO: Maybe not the best place to modify the filesystem, but clear enough for now
-			err := mkdirAll(newMount.HostPath, PodVolPerms)
-			if err != nil {
-				return nil, errors.Wrapf(err, "error making emptyDir for path %s", newMount.HostPath)
-			}
-		} else if podVolSpec.Secret != nil {
-			spec := podVolSpec.Secret
-			podSecretDir := filepath.Join(podVolRoot, PodSecretVolDir, mountSpec.Name)
-			newMount.HostPath = podSecretDir
-			err := mkdirAll(newMount.HostPath, PodSecretVolPerms)
-			if err != nil {
-				return nil, errors.Wrapf(err, "error making secret dir for path %s", newMount.HostPath)
-			}
-			secret, err := rm.GetSecret(spec.SecretName, pod.Namespace)
-			if spec.Optional != nil && !*spec.Optional && k8serr.IsNotFound(err) {
-				return nil, errors.Errorf("secret %q is required by pod %q and does not exist", spec.SecretName, pod.Name)
-			}
-			if err != nil {
-				return nil, errors.Wrapf(err, "error getting secret %s from API server", spec.SecretName)
-			}
-			if secret == nil {
-				continue
-			}
-			// TODO: Check podVolSpec.Secret.Items and map to specified paths
-			// TODO: Check podVolSpec.Secret.StringData
-			// TODO: What to do with podVolSpec.Secret.SecretType?
-			for k, v := range secret.Data {
-				// TODO: Arguably the wrong place to be writing files, but clear enough for now
-				// TODO: Ensure that these files are deleted in failure cases
-				fullPath := filepath.Join(podSecretDir, k)
-				err = ioutil.WriteFile(fullPath, v, PodSecretFilePerms) // Not encoded
-				if err != nil {
-					return nil, fmt.Errorf("Could not write secret file %s", fullPath)
-				}
-			}
-		} else if podVolSpec.ConfigMap != nil {
-			spec := podVolSpec.ConfigMap
-			podConfigMapDir := filepath.Join(podVolRoot, PodConfigMapVolDir, mountSpec.Name)
-			newMount.HostPath = podConfigMapDir
-			err := mkdirAll(newMount.HostPath, PodConfigMapVolPerms)
-			if err != nil {
-				return nil, fmt.Errorf("Error making configmap dir for path %s: %v", newMount.HostPath, err)
-			}
-			configMap, err := rm.GetConfigMap(spec.Name, pod.Namespace)
-			if spec.Optional != nil && !*spec.Optional && k8serr.IsNotFound(err) {
-				return nil, fmt.Errorf("Configmap %s is required by Pod %s and does not exist", spec.Name, pod.Name)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("Error getting configmap %s from API server: %v", spec.Name, err)
-			}
-			if configMap == nil {
-				continue
-			}
-			// TODO: Check podVolSpec.ConfigMap.Items and map to paths
-			// TODO: Check podVolSpec.ConfigMap.BinaryData
-			for k, v := range configMap.Data {
-				// TODO: Arguably the wrong place to be writing files, but clear enough for now
-				// TODO: Ensure that these files are deleted in failure cases
-				fullPath := filepath.Join(podConfigMapDir, k)
-				err = ioutil.WriteFile(fullPath, []byte(v), PodConfigMapFilePerms)
-				if err != nil {
-					return nil, fmt.Errorf("Could not write configmap file %s", fullPath)
-				}
-			}
-		} else {
-			continue
-		}
-		mounts = append(mounts, &newMount)
-	}
-	return mounts, nil
-}
+// 	mounts := []*criapi.Mount{}
+// 	for _, mountSpec := range container.VolumeMounts {
+// 		podVolSpec := findPodVolumeSpec(pod, mountSpec.Name)
+// 		if podVolSpec == nil {
+// 			log.G(ctx).Debugf("Container volume mount %s not found in Pod spec", mountSpec.Name)
+// 			continue
+// 		}
+// 		// Common fields to all mount types
+// 		newMount := criapi.Mount{
+// 			ContainerPath: filepath.Join(mountSpec.MountPath, mountSpec.SubPath),
+// 			Readonly:      mountSpec.ReadOnly,
+// 			Propagation:   convertMountPropagationToCRI(mountSpec.MountPropagation),
+// 		}
+// 		// Iterate over the volume types we care about
+// 		if podVolSpec.HostPath != nil {
+// 			newMount.HostPath = podVolSpec.HostPath.Path
+// 		} else if podVolSpec.EmptyDir != nil {
+// 			// TODO: Currently ignores the SizeLimit
+// 			newMount.HostPath = filepath.Join(podVolRoot, mountSpec.Name)
+// 			// TODO: Maybe not the best place to modify the filesystem, but clear enough for now
+// 			err := mkdirAll(newMount.HostPath, PodVolPerms)
+// 			if err != nil {
+// 				return nil, errors.Wrapf(err, "error making emptyDir for path %s", newMount.HostPath)
+// 			}
+// 		} else if podVolSpec.Secret != nil {
+// 			spec := podVolSpec.Secret
+// 			podSecretDir := filepath.Join(podVolRoot, PodSecretVolDir, mountSpec.Name)
+// 			newMount.HostPath = podSecretDir
+// 			err := mkdirAll(newMount.HostPath, PodSecretVolPerms)
+// 			if err != nil {
+// 				return nil, errors.Wrapf(err, "error making secret dir for path %s", newMount.HostPath)
+// 			}
+// 			secret, err := rm.GetSecret(spec.SecretName, pod.Namespace)
+// 			if spec.Optional != nil && !*spec.Optional && k8serr.IsNotFound(err) {
+// 				return nil, errors.Errorf("secret %q is required by pod %q and does not exist", spec.SecretName, pod.Name)
+// 			}
+// 			if err != nil {
+// 				return nil, errors.Wrapf(err, "error getting secret %s from API server", spec.SecretName)
+// 			}
+// 			if secret == nil {
+// 				continue
+// 			}
+// 			// TODO: Check podVolSpec.Secret.Items and map to specified paths
+// 			// TODO: Check podVolSpec.Secret.StringData
+// 			// TODO: What to do with podVolSpec.Secret.SecretType?
+// 			for k, v := range secret.Data {
+// 				// TODO: Arguably the wrong place to be writing files, but clear enough for now
+// 				// TODO: Ensure that these files are deleted in failure cases
+// 				fullPath := filepath.Join(podSecretDir, k)
+// 				// TODO: write with rpc
+// 				err = ioutil.WriteFile(fullPath, v, PodSecretFilePerms) // Not encoded
+// 				if err != nil {
+// 					return nil, fmt.Errorf("Could not write secret file %s", fullPath)
+// 				}
+// 			}
+// 		} else if podVolSpec.ConfigMap != nil {
+// 			spec := podVolSpec.ConfigMap
+// 			podConfigMapDir := filepath.Join(podVolRoot, PodConfigMapVolDir, mountSpec.Name)
+// 			newMount.HostPath = podConfigMapDir
+// 			err := mkdirAll(newMount.HostPath, PodConfigMapVolPerms)
+// 			if err != nil {
+// 				return nil, fmt.Errorf("Error making configmap dir for path %s: %v", newMount.HostPath, err)
+// 			}
+// 			configMap, err := rm.GetConfigMap(spec.Name, pod.Namespace)
+// 			if spec.Optional != nil && !*spec.Optional && k8serr.IsNotFound(err) {
+// 				return nil, fmt.Errorf("Configmap %s is required by Pod %s and does not exist", spec.Name, pod.Name)
+// 			}
+// 			if err != nil {
+// 				return nil, fmt.Errorf("Error getting configmap %s from API server: %v", spec.Name, err)
+// 			}
+// 			if configMap == nil {
+// 				continue
+// 			}
+// 			// TODO: Check podVolSpec.ConfigMap.Items and map to paths
+// 			// TODO: Check podVolSpec.ConfigMap.BinaryData
+// 			for k, v := range configMap.Data {
+// 				// TODO: Arguably the wrong place to be writing files, but clear enough for now
+// 				// TODO: Ensure that these files are deleted in failure cases
+// 				fullPath := filepath.Join(podConfigMapDir, k)
+// 				err = ioutil.WriteFile(fullPath, []byte(v), PodConfigMapFilePerms)
+// 				if err != nil {
+// 					return nil, fmt.Errorf("Could not write configmap file %s", fullPath)
+// 				}
+// 			}
+// 		} else {
+// 			continue
+// 		}
+// 		mounts = append(mounts, &newMount)
+// 	}
+// 	return mounts, nil
+// }
 
 // Test a bool pointer. If nil, return default value
 func valueOrDefaultBool(input *bool, defVal bool) bool {
