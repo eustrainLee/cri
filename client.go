@@ -328,11 +328,6 @@ func generateContainerConfig(ctx context.Context, container *v1.Container, pod *
 		StdinOnce:   container.StdinOnce,
 		Tty:         container.TTY,
 	}
-	// mounts, err := createCtrMounts(ctx, container, pod, podVolRoot, rm)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// config.Mounts = mounts
 	return config, nil
 }
 
@@ -353,7 +348,74 @@ func generatePodSandboxConfig(ctx context.Context, pod *v1.Pod, logDir string, a
 		DnsConfig:    createPodDnsConfig(pod),
 		Hostname:     createPodHostname(pod),
 		PortMappings: createPortMappings(pod),
-		Linux:        createPodSandboxLinuxConfig(pod),
+		Linux:        createPodSandboxLiteOSConfig(pod),
 	}
 	return config, nil
+}
+
+// Create a hostname from the Pod spec
+func createPodHostname(pod *v1.Pod) string {
+	specHostname := pod.Spec.Hostname
+	//	specDomain := pod.Spec.Subdomain
+	if len(specHostname) == 0 {
+		specHostname = pod.Spec.NodeName // TODO: This is what kube-proxy expects. Double-check
+	}
+	//	if len(specDomain) == 0 {
+	return specHostname
+	//      }
+	// TODO: Cannot apply the domain until we get the cluster domain from the equivalent of kube-config
+	// If specified, the fully qualified Pod hostname will be "<hostname>.<subdomain>.<pod namespace>.svc.<cluster domain>".
+	// If not specified, the pod will not have a domainname at all.
+	//	return fmt.Sprintf("%s.%s.%s.svc.%s", specHostname, specDomain, Pod.Spec.Namespace, //cluster domain)
+}
+
+// Create DNS config from the Pod spec
+func createPodDnsConfig(pod *v1.Pod) *criapi.DNSConfig {
+	return nil // Use the container engine defaults for now
+}
+
+// Create CRI LinuxPodSandboxConfig from the Pod spec
+// TODO: This mapping is currently incomplete
+func createPodSandboxLiteOSConfig(pod *v1.Pod) *criapi.LinuxPodSandboxConfig {
+	return &criapi.LinuxPodSandboxConfig{
+		CgroupParent: "",
+		SecurityContext: &criapi.LinuxSandboxSecurityContext{
+			NamespaceOptions:   nil, // type *NamespaceOption
+			SelinuxOptions:     nil, // type *SELinuxOption
+			RunAsUser:          nil, // type *Int64Value
+			RunAsGroup:         nil, // type *Int64Value
+			ReadonlyRootfs:     false,
+			SupplementalGroups: []int64{},
+			Privileged:         existsPrivilegedContainerInSpec(pod),
+			SeccompProfilePath: "",
+		},
+		Sysctls: make(map[string]string),
+	}
+}
+
+// Convert environment variables to CRI format
+func createCtrEnvVars(in []v1.EnvVar) []*criapi.KeyValue {
+	out := make([]*criapi.KeyValue, len(in))
+	for i := range in {
+		e := in[i]
+		out[i] = &criapi.KeyValue{
+			Key:   e.Name,
+			Value: e.Value,
+		}
+	}
+	return out
+}
+
+// Create CRI container labels from Pod and Container spec
+func createCtrLabels(container *v1.Container, pod *v1.Pod) map[string]string {
+	labels := make(map[string]string)
+	// Note: None of the "special" labels appear to have any meaning outside of Kubelet
+	return labels
+}
+
+// Create CRI container annotations from Pod and Container spec
+func createCtrAnnotations(container *v1.Container, pod *v1.Pod) map[string]string {
+	annotations := make(map[string]string)
+	// Note: None of the "special" annotations appear to have any meaning outside of Kubelet
+	return annotations
 }

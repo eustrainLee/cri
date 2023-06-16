@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
+
+	// "io/ioutil"
 	"net"
 	"path"
 	"path/filepath"
@@ -59,23 +60,14 @@ type Provider struct {
 	internalIP         string
 	nodeIP             string
 	daemonEndpointPort int32
-	podStatus          map[types.UID]CRIPod // Indexed by Pod Spec UID
-	runtimeClient      criapi.RuntimeServiceClient
-	imageClient        criapi.ImageServiceClient
-	notifyStatus       func(*v1.Pod)
+	// podStatus          map[types.UID]CRIPod // Indexed by Pod Spec UID
+	holdingPod    *CRIPod
+	runtimeClient criapi.RuntimeServiceClient
+	imageClient   criapi.ImageServiceClient
+	notifyStatus  func(*v1.Pod)
 
 	// workaround
-	cachedPods map[CachedPodKey]CachedPod
-}
-
-type CachedPodKey struct {
-	name      string
-	namespace string
-}
-
-type CachedPod struct {
-	id           string
-	containerIds []string
+	// cachedPods map[CachedPodKey]CachedPod
 }
 
 type CRIPod struct {
@@ -98,36 +90,40 @@ func (p *Provider) refreshNodeState(ctx context.Context) (retErr error) {
 		return err
 	}
 
-	newStatus := make(map[types.UID]CRIPod)
-	for _, pod := range allPods {
-		psId := pod.Id
-
-		pss, err := getPodSandboxStatus(ctx, p.runtimeClient, psId)
-		if err != nil {
-			return err
-		}
-
-		containers, err := getContainersForSandbox(ctx, p.runtimeClient, psId)
-		if err != nil {
-			return err
-		}
-
-		var css = make(map[string]*criapi.ContainerStatus)
-		for _, c := range containers {
-			cstatus, err := getContainerCRIStatus(ctx, p.runtimeClient, c.Id)
-			if err != nil {
-				return err
-			}
-			css[cstatus.Metadata.Name] = cstatus
-		}
-
-		newStatus[types.UID(pss.Metadata.Uid)] = CRIPod{
-			id:         pod.Id,
-			status:     pss,
-			containers: css,
-		}
+	pod := allPods[0]
+	if len(allPods) > 1 {
+		klog.Warningf("The number of pods is %d and more than one", len(allPods))
 	}
-	p.podStatus = newStatus
+	psId := pod.Id
+
+	pss, err := getPodSandboxStatus(ctx, p.runtimeClient, psId)
+	if err != nil {
+		return err
+	}
+	containers, err := getContainersForSandbox(ctx, p.runtimeClient, psId)
+	if err != nil {
+		return err
+	}
+	if containers == nil {
+		containers = make([]*criapi.Container, 0)
+	}
+
+	var css = make(map[string]*criapi.ContainerStatus)
+	for _, c := range containers {
+		cstatus, err := getContainerCRIStatus(ctx, p.runtimeClient, c.Id)
+		if err != nil {
+			return err
+		}
+		css[cstatus.Metadata.Name] = cstatus
+	}
+
+	newPod := &CRIPod{
+		id:         pod.Id,
+		status:     pss,
+		containers: css,
+	}
+	p.holdingPod = newPod
+
 	return nil
 }
 
@@ -186,6 +182,11 @@ func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, re
 	if err != nil {
 		return nil, err
 	}
+
+	// Discard the operatingSystem from the InitConfig
+	_ = operatingSystem
+	operatingSystem = "LiteOS"
+
 	provider := Provider{
 		resourceManager:    resourceManager,
 		podLogRoot:         PodLogRoot,
@@ -195,11 +196,12 @@ func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, re
 		internalIP:         internalIP,
 		nodeIP:             nodeIP,
 		daemonEndpointPort: daemonEndpointPort,
-		podStatus:          make(map[types.UID]CRIPod),
-		runtimeClient:      runtimeClient,
-		imageClient:        imageClient,
+		// podStatus:          make(map[types.UID]CRIPod),
+		holdingPod:    nil,
+		runtimeClient: runtimeClient,
+		imageClient:   imageClient,
 
-		cachedPods: make(map[CachedPodKey]CachedPod),
+		// cachedPods: make(map[CachedPodKey]CachedPod),
 	}
 	err = mkdirAll(provider.podLogRoot, PodLogRootPerms)
 	if err != nil {
@@ -228,27 +230,6 @@ func createPodLabels(pod *v1.Pod) map[string]string {
 	}
 
 	return labels
-}
-
-// Create a hostname from the Pod spec
-func createPodHostname(pod *v1.Pod) string {
-	specHostname := pod.Spec.Hostname
-	//	specDomain := pod.Spec.Subdomain
-	if len(specHostname) == 0 {
-		specHostname = pod.Spec.NodeName // TODO: This is what kube-proxy expects. Double-check
-	}
-	//	if len(specDomain) == 0 {
-	return specHostname
-	//      }
-	// TODO: Cannot apply the domain until we get the cluster domain from the equivalent of kube-config
-	// If specified, the fully qualified Pod hostname will be "<hostname>.<subdomain>.<pod namespace>.svc.<cluster domain>".
-	// If not specified, the pod will not have a domainname at all.
-	//	return fmt.Sprintf("%s.%s.%s.svc.%s", specHostname, specDomain, Pod.Spec.Namespace, //cluster domain)
-}
-
-// Create DNS config from the Pod spec
-func createPodDnsConfig(pod *v1.Pod) *criapi.DNSConfig {
-	return nil // Use the container engine defaults for now
 }
 
 // Convert protocol spec to CRI
@@ -289,175 +270,6 @@ func existsPrivilegedContainerInSpec(pod *v1.Pod) bool {
 	}
 	return false
 }
-
-// Create CRI LinuxPodSandboxConfig from the Pod spec
-// TODO: This mapping is currently incomplete
-func createPodSandboxLinuxConfig(pod *v1.Pod) *criapi.LinuxPodSandboxConfig {
-	return &criapi.LinuxPodSandboxConfig{
-		CgroupParent: "",
-		SecurityContext: &criapi.LinuxSandboxSecurityContext{
-			NamespaceOptions:   nil, // type *NamespaceOption
-			SelinuxOptions:     nil, // type *SELinuxOption
-			RunAsUser:          nil, // type *Int64Value
-			RunAsGroup:         nil, // type *Int64Value
-			ReadonlyRootfs:     false,
-			SupplementalGroups: []int64{},
-			Privileged:         existsPrivilegedContainerInSpec(pod),
-			SeccompProfilePath: "",
-		},
-		Sysctls: make(map[string]string),
-	}
-}
-
-// Convert environment variables to CRI format
-func createCtrEnvVars(in []v1.EnvVar) []*criapi.KeyValue {
-	out := make([]*criapi.KeyValue, len(in))
-	for i := range in {
-		e := in[i]
-		out[i] = &criapi.KeyValue{
-			Key:   e.Name,
-			Value: e.Value,
-		}
-	}
-	return out
-}
-
-// Create CRI container labels from Pod and Container spec
-func createCtrLabels(container *v1.Container, pod *v1.Pod) map[string]string {
-	labels := make(map[string]string)
-	// Note: None of the "special" labels appear to have any meaning outside of Kubelet
-	return labels
-}
-
-// Create CRI container annotations from Pod and Container spec
-func createCtrAnnotations(container *v1.Container, pod *v1.Pod) map[string]string {
-	annotations := make(map[string]string)
-	// Note: None of the "special" annotations appear to have any meaning outside of Kubelet
-	return annotations
-}
-
-// Search for a particular volume spec by name in the Pod spec
-func findPodVolumeSpec(pod *v1.Pod, name string) *v1.VolumeSource {
-	for _, volume := range pod.Spec.Volumes {
-		if volume.Name == name {
-			return &volume.VolumeSource
-		}
-	}
-	return nil
-}
-
-// Convert mount propagation type to CRI format
-func convertMountPropagationToCRI(input *v1.MountPropagationMode) criapi.MountPropagation {
-	if input != nil {
-		switch *input {
-		case v1.MountPropagationHostToContainer:
-			return criapi.MountPropagation_PROPAGATION_HOST_TO_CONTAINER
-		case v1.MountPropagationBidirectional:
-			return criapi.MountPropagation_PROPAGATION_BIDIRECTIONAL
-		}
-	}
-	return criapi.MountPropagation_PROPAGATION_PRIVATE
-}
-
-// Create a CRI specification for the container mounts from the Pod and Container specs
-// func createCtrMounts(ctx context.Context, container *v1.Container, pod *v1.Pod, podVolRoot string, rm *manager.ResourceManager) (ls []*criapi.Mount, retErr error) {
-// 	ctx, span := trace.StartSpan(ctx, "cri.createCtrMounts")
-// 	defer span.End()
-// 	defer func() {
-// 		span.SetStatus(retErr)
-// 	}()
-
-// 	mounts := []*criapi.Mount{}
-// 	for _, mountSpec := range container.VolumeMounts {
-// 		podVolSpec := findPodVolumeSpec(pod, mountSpec.Name)
-// 		if podVolSpec == nil {
-// 			log.G(ctx).Debugf("Container volume mount %s not found in Pod spec", mountSpec.Name)
-// 			continue
-// 		}
-// 		// Common fields to all mount types
-// 		newMount := criapi.Mount{
-// 			ContainerPath: filepath.Join(mountSpec.MountPath, mountSpec.SubPath),
-// 			Readonly:      mountSpec.ReadOnly,
-// 			Propagation:   convertMountPropagationToCRI(mountSpec.MountPropagation),
-// 		}
-// 		// Iterate over the volume types we care about
-// 		if podVolSpec.HostPath != nil {
-// 			newMount.HostPath = podVolSpec.HostPath.Path
-// 		} else if podVolSpec.EmptyDir != nil {
-// 			// TODO: Currently ignores the SizeLimit
-// 			newMount.HostPath = filepath.Join(podVolRoot, mountSpec.Name)
-// 			// TODO: Maybe not the best place to modify the filesystem, but clear enough for now
-// 			err := mkdirAll(newMount.HostPath, PodVolPerms)
-// 			if err != nil {
-// 				return nil, errors.Wrapf(err, "error making emptyDir for path %s", newMount.HostPath)
-// 			}
-// 		} else if podVolSpec.Secret != nil {
-// 			spec := podVolSpec.Secret
-// 			podSecretDir := filepath.Join(podVolRoot, PodSecretVolDir, mountSpec.Name)
-// 			newMount.HostPath = podSecretDir
-// 			err := mkdirAll(newMount.HostPath, PodSecretVolPerms)
-// 			if err != nil {
-// 				return nil, errors.Wrapf(err, "error making secret dir for path %s", newMount.HostPath)
-// 			}
-// 			secret, err := rm.GetSecret(spec.SecretName, pod.Namespace)
-// 			if spec.Optional != nil && !*spec.Optional && k8serr.IsNotFound(err) {
-// 				return nil, errors.Errorf("secret %q is required by pod %q and does not exist", spec.SecretName, pod.Name)
-// 			}
-// 			if err != nil {
-// 				return nil, errors.Wrapf(err, "error getting secret %s from API server", spec.SecretName)
-// 			}
-// 			if secret == nil {
-// 				continue
-// 			}
-// 			// TODO: Check podVolSpec.Secret.Items and map to specified paths
-// 			// TODO: Check podVolSpec.Secret.StringData
-// 			// TODO: What to do with podVolSpec.Secret.SecretType?
-// 			for k, v := range secret.Data {
-// 				// TODO: Arguably the wrong place to be writing files, but clear enough for now
-// 				// TODO: Ensure that these files are deleted in failure cases
-// 				fullPath := filepath.Join(podSecretDir, k)
-// 				// TODO: write with rpc
-// 				err = ioutil.WriteFile(fullPath, v, PodSecretFilePerms) // Not encoded
-// 				if err != nil {
-// 					return nil, fmt.Errorf("Could not write secret file %s", fullPath)
-// 				}
-// 			}
-// 		} else if podVolSpec.ConfigMap != nil {
-// 			spec := podVolSpec.ConfigMap
-// 			podConfigMapDir := filepath.Join(podVolRoot, PodConfigMapVolDir, mountSpec.Name)
-// 			newMount.HostPath = podConfigMapDir
-// 			err := mkdirAll(newMount.HostPath, PodConfigMapVolPerms)
-// 			if err != nil {
-// 				return nil, fmt.Errorf("Error making configmap dir for path %s: %v", newMount.HostPath, err)
-// 			}
-// 			configMap, err := rm.GetConfigMap(spec.Name, pod.Namespace)
-// 			if spec.Optional != nil && !*spec.Optional && k8serr.IsNotFound(err) {
-// 				return nil, fmt.Errorf("Configmap %s is required by Pod %s and does not exist", spec.Name, pod.Name)
-// 			}
-// 			if err != nil {
-// 				return nil, fmt.Errorf("Error getting configmap %s from API server: %v", spec.Name, err)
-// 			}
-// 			if configMap == nil {
-// 				continue
-// 			}
-// 			// TODO: Check podVolSpec.ConfigMap.Items and map to paths
-// 			// TODO: Check podVolSpec.ConfigMap.BinaryData
-// 			for k, v := range configMap.Data {
-// 				// TODO: Arguably the wrong place to be writing files, but clear enough for now
-// 				// TODO: Ensure that these files are deleted in failure cases
-// 				fullPath := filepath.Join(podConfigMapDir, k)
-// 				err = ioutil.WriteFile(fullPath, []byte(v), PodConfigMapFilePerms)
-// 				if err != nil {
-// 					return nil, fmt.Errorf("Could not write configmap file %s", fullPath)
-// 				}
-// 			}
-// 		} else {
-// 			continue
-// 		}
-// 		mounts = append(mounts, &newMount)
-// 	}
-// 	return mounts, nil
-// }
 
 // Test a bool pointer. If nil, return default value
 func valueOrDefaultBool(input *bool, defVal bool) bool {
@@ -522,22 +334,13 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 	if err != nil {
 		return err
 	}
-	existing := p.findPodByName(pod.Namespace, pod.Name)
+	existing := p.getHoldingCRIPod()
 
 	// TODO: Is re-using an existing sandbox with the UID the correct behavior?
 	// TODO: Should delete the sandbox if container creation fails
 	var pId string
 	if existing == nil {
-		err = mkdirAll(logPath, 0755)
-		if err != nil {
-			return err
-		}
-		err = mkdirAll(volPath, 0755)
-		if err != nil {
-			return err
-		}
-		// TODO: Is there a race here?
-		klog.Info("ran sandbox", pConfig)
+		klog.Info("run sandbox", pConfig)
 		pId, err = runPodSandbox(ctx, p.runtimeClient, pConfig)
 		if err != nil {
 			return err
@@ -573,15 +376,20 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 		containerIds = append(containerIds, cId)
 	}
 
-	p.cachedPods[CachedPodKey{pod.Name, pod.Namespace}] = CachedPod{
-		id:           pId,
-		containerIds: containerIds,
-	}
-
 	time.AfterFunc(5*time.Second, func() {
-		// pod.Status.Phase =
+		p.refreshNodeState(ctx)
+		existing = p.getHoldingCRIPod()
+		if existing == nil {
+			return
+		}
 		newPod := pod.DeepCopy()
+		// check phase
 		newPod.Status.Phase = v1.PodRunning
+		for _, c := range existing.containers {
+			if c.State != criapi.ContainerState_CONTAINER_RUNNING {
+				newPod.Status.Phase = v1.PodFailed
+			}
+		}
 		p.notifyStatus(newPod)
 	})
 
@@ -616,8 +424,8 @@ func (p *Provider) deletePod(ctx context.Context, pod *v1.Pod) error {
 		return err
 	}
 
-	ps, ok := p.podStatus[pod.UID]
-	if !ok {
+	ps := p.getHoldingCRIPod()
+	if ps == nil {
 		return errdefs.NotFoundf("Pod %s not found", pod.UID)
 	}
 
@@ -661,7 +469,7 @@ func (p *Provider) getPod(ctx context.Context, namespace, name string) (*v1.Pod,
 		return nil, err
 	}
 
-	pod := p.findPodByName(namespace, name)
+	pod := p.getHoldingCRIPod()
 	if pod == nil {
 		return nil, errdefs.NotFoundf("Pod %s in namespace %s could not be found on the node", name, namespace)
 	}
@@ -669,38 +477,9 @@ func (p *Provider) getPod(ctx context.Context, namespace, name string) (*v1.Pod,
 	return createPodSpecFromCRI(pod, p.nodeName), nil
 }
 
-// Reads a log file into a string
-func readLogFile(filename string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	lines, err := scanFile(filename)
-	if err != nil {
-		return nil, err
-	}
-
-	if opts.Tail > 0 && opts.Tail < len(lines) {
-		lines = lines[len(lines)-opts.Tail:]
-	}
-	return ioutil.NopCloser(strings.NewReader(strings.Join(lines, ""))), nil
-}
-
 // Provider function to read the logs of a container
 func (p *Provider) GetContainerLogs(ctx context.Context, namespace, podName, containerName string, opts api.ContainerLogOpts) (io.ReadCloser, error) {
-	log.G(ctx).Debugf("receive GetContainerLogs %q", containerName)
-	klog.Info("Get container logs: namespace ", namespace, ", pod name ", podName, ", opts ", opts)
-	err := p.refreshNodeState(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	pod := p.findPodByName(namespace, podName)
-	if pod == nil {
-		return nil, errdefs.NotFoundf("Pod %s in namespace %s not found", podName, namespace)
-	}
-	container := pod.containers[containerName]
-	if container == nil {
-		return nil, errdefs.NotFoundf("Cannot find container %s in pod %s namespace %s", containerName, podName, namespace)
-	}
-
-	return readLogFile(container.LogPath, opts)
+	return nil, errdefs.NotFound("not implement")
 }
 
 // RunInContainer executes a command in a container in the pod, copying data
@@ -712,67 +491,14 @@ func (p *Provider) RunInContainer(ctx context.Context, namespace, name, containe
 	return nil
 }
 
-// Find a pod by name and namespace. Pods are indexed by UID
-func (p *Provider) findPodByName(namespace, name string) *CRIPod {
-	// workaround method
-	var found *CRIPod
-	// find pod
-	cachedPod, ok := p.cachedPods[CachedPodKey{name, namespace}]
-	if ok {
-		for _, pod := range p.podStatus {
-			// if pod.status.Metadata.Name == name && pod.status.Metadata.Namespace == namespace {
-			// 	found = &pod
-			// 	break
-			// }
-
-			// pod found
-			if cachedPod.id == pod.id {
-
-				// list all containers
-				containers := make(map[string]*criapi.ContainerStatus)
-				for name, c := range pod.containers {
-					// _ = name
-					// if c.Id == cachedPod.containers
-					for _, c_id := range cachedPod.containerIds {
-						if c.Id == c_id {
-							containers[name] = c
-						}
-					}
-				}
-				found = &CRIPod{
-					id:         cachedPod.id,
-					containers: containers,
-					status:     pod.status,
-				}
-				// workaround
-				// found.status.State = criapi.PodSandboxState_SANDBOX_READY
-			}
-		}
+func (p *Provider) getHoldingCRIPod() *CRIPod {
+	if p.holdingPod == nil {
+		return nil
 	}
-	return found
-}
-
-func (p *Provider) findPodById(id string) *CRIPod {
-	// workaround method
-	var found *CRIPod
-	// find pod
-	for _, pod := range p.podStatus {
-		// if pod.status.Metadata.Name == name && pod.status.Metadata.Namespace == namespace {
-		// 	found = &pod
-		// 	break
-		// }
-
-		// pod found
-		if id == pod.id {
-			found = &CRIPod{
-				id:         pod.id,
-				containers: pod.containers,
-				status:     pod.status,
-			}
-		}
+	if len(p.holdingPod.containers) == 0 {
+		return nil
 	}
-
-	return found
+	return p.holdingPod
 }
 
 // Provider function to return the status of a Pod
@@ -799,7 +525,7 @@ func (p *Provider) getPodStatus(ctx context.Context, namespace, name string) (*v
 		return nil, err
 	}
 
-	pod := p.findPodByName(namespace, name)
+	pod := p.getHoldingCRIPod()
 	if pod == nil {
 		return nil, errdefs.NotFoundf("pod %s in namespace %s could not be found on the node", name, namespace)
 	}
@@ -878,7 +604,16 @@ func createPodStatusFromCRI(p *CRIPod) *v1.PodStatus {
 	// if p.status.State == criapi.PodSandboxState_SANDBOX_READY {
 	// 	phase = v1.PodRunning
 	// }
+	// // phase := v1.PodRunning
 	phase := v1.PodRunning
+	if p.containers != nil {
+		for _, c := range p.containers {
+			if c.State != criapi.ContainerState_CONTAINER_RUNNING {
+				phase = v1.PodPending
+				break
+			}
+		}
+	}
 
 	startTime := metav1.NewTime(time.Unix(0, p.status.CreatedAt))
 	return &v1.PodStatus{
@@ -927,15 +662,17 @@ func (p *Provider) GetPods(ctx context.Context) ([]*v1.Pod, error) {
 	log.G(ctx).Debugf("receive GetPods")
 	klog.Info("Get pods")
 
-	var pods []*v1.Pod
-
 	err := p.refreshNodeState(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, ps := range p.podStatus {
-		pods = append(pods, createPodSpecFromCRI(&ps, p.nodeName))
+	var pods []*v1.Pod
+	ps := p.getHoldingCRIPod()
+	if ps != nil {
+		pods = []*v1.Pod{createPodSpecFromCRI(ps, p.nodeName)}
+	} else {
+		pods = []*v1.Pod{}
 	}
 
 	klog.Info("Get pods result:", pods)
@@ -944,7 +681,13 @@ func (p *Provider) GetPods(ctx context.Context) ([]*v1.Pod, error) {
 }
 
 func (p *Provider) ConfigureNode(ctx context.Context, n *v1.Node) {
+	err := p.refreshNodeState(ctx)
+	if err != nil {
+		panic(err)
+	}
+
 	n.Status.Capacity = p.capacity(ctx)
+	n.Status.Allocatable = p.allocatable(ctx)
 	n.Status.Conditions = p.nodeConditions()
 	n.Status.Addresses = p.nodeAddresses()
 	n.Status.DaemonEndpoints = p.nodeDaemonEndpoints()
@@ -953,11 +696,6 @@ func (p *Provider) ConfigureNode(ctx context.Context, n *v1.Node) {
 
 // Provider function to return the capacity of the node
 func (p *Provider) capacity(ctx context.Context) v1.ResourceList {
-	err := p.refreshNodeState(ctx)
-	if err != nil {
-		panic(err)
-	}
-
 	var cpuQ resource.Quantity
 	cpuQ.Set(int64(numCPU()))
 	var memQ resource.Quantity
@@ -966,8 +704,13 @@ func (p *Provider) capacity(ctx context.Context) v1.ResourceList {
 	return v1.ResourceList{
 		"cpu":    cpuQ,
 		"memory": memQ,
-		"pods":   resource.MustParse("1000"),
+		"pods":   resource.MustParse("1"),
 	}
+}
+
+func (p *Provider) allocatable(ctx context.Context) v1.ResourceList {
+	// TODO: get current state
+	return nil
 }
 
 // Provider function to return node conditions
