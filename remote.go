@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/rpc"
 	"net/rpc/jsonrpc"
-	"os"
 )
 
 func heart() bool {
@@ -63,66 +62,66 @@ func numCPU() int {
 	return int(numCPU)
 }
 
-func scanFile(filename string) ([]string, error) {
-	conn, err := net.Dial("tcp", AgentPort)
-	if err != nil {
-		fmt.Println("dial error:", err)
-	}
+// func scanFile(filename string) ([]string, error) {
+// 	conn, err := net.Dial("tcp", AgentPort)
+// 	if err != nil {
+// 		fmt.Println("dial error:", err)
+// 	}
 
-	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
+// 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
 
-	var lines []string
+// 	var lines []string
 
-	err = client.Call("scanFile", &filename, &lines)
-	if err != nil {
-		fmt.Println("scanFile error:", err)
-	}
-	return lines, nil
-}
+// 	err = client.Call("scanFile", &filename, &lines)
+// 	if err != nil {
+// 		fmt.Println("scanFile error:", err)
+// 	}
+// 	return lines, nil
+// }
 
-type mkdirAllArgs struct {
-	Path string `json:"path"`
-	Perm uint32 `json:"perm"`
-}
+// type mkdirAllArgs struct {
+// 	Path string `json:"path"`
+// 	Perm uint32 `json:"perm"`
+// }
 
-func mkdirAll(path string, perm os.FileMode) error {
-	conn, err := net.Dial("tcp", AgentPort)
-	if err != nil {
-		fmt.Println("dial error:", err)
-	}
+// func mkdirAll(path string, perm os.FileMode) error {
+// 	conn, err := net.Dial("tcp", AgentPort)
+// 	if err != nil {
+// 		fmt.Println("dial error:", err)
+// 	}
 
-	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
-	args := mkdirAllArgs{
-		Path: path,
-		Perm: uint32(perm),
-	}
-	var mked bool
-	err = client.Call("mkdirAll", &args, &mked)
-	if err != nil {
-		fmt.Println("mkdirAll error:", err)
-		return err
-	}
-	_ = mked
-	return nil
-}
+// 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
+// 	args := mkdirAllArgs{
+// 		Path: path,
+// 		Perm: uint32(perm),
+// 	}
+// 	var mked bool
+// 	err = client.Call("mkdirAll", &args, &mked)
+// 	if err != nil {
+// 		fmt.Println("mkdirAll error:", err)
+// 		return err
+// 	}
+// 	_ = mked
+// 	return nil
+// }
 
-func removeAll(path string) error {
-	conn, err := net.Dial("tcp", AgentPort)
-	if err != nil {
-		fmt.Println("dial error:", err)
-	}
+// func removeAll(path string) error {
+// 	conn, err := net.Dial("tcp", AgentPort)
+// 	if err != nil {
+// 		fmt.Println("dial error:", err)
+// 	}
 
-	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
+// 	client := rpc.NewClientWithCodec(jsonrpc.NewClientCodec(conn))
 
-	var rmed bool
-	err = client.Call("mkdirAll", &path, &rmed)
-	if err != nil {
-		fmt.Println("mkdirAll error:", err)
-		return err
-	}
-	_ = rmed
-	return nil
-}
+// 	var rmed bool
+// 	err = client.Call("mkdirAll", &path, &rmed)
+// 	if err != nil {
+// 		fmt.Println("mkdirAll error:", err)
+// 		return err
+// 	}
+// 	_ = rmed
+// 	return nil
+// }
 
 func init() {
 	fmt.Println("load rpc client")

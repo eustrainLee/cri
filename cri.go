@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 
-	// "io/ioutil"
 	"net"
 	"path"
 	"path/filepath"
@@ -65,9 +64,7 @@ type Provider struct {
 	runtimeClient criapi.RuntimeServiceClient
 	imageClient   criapi.ImageServiceClient
 	notifyStatus  func(*v1.Pod)
-
-	// workaround
-	// cachedPods map[CachedPodKey]CachedPod
+	agentDepend   bool
 }
 
 type CRIPod struct {
@@ -176,7 +173,7 @@ func getClientConnection(criEndpoint string) (*grpc.ClientConn, error) {
 }
 
 // Create a new Provider
-func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, resourceManager *manager.ResourceManager, daemonEndpointPort int32) (*Provider, error) {
+func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, resourceManager *manager.ResourceManager, daemonEndpointPort int32, agentDepend bool) (*Provider, error) {
 	var criEndpoint string = CriPort
 	runtimeClient, imageClient, err := getClientAPIs(criEndpoint)
 	if err != nil {
@@ -196,24 +193,17 @@ func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, re
 		internalIP:         internalIP,
 		nodeIP:             nodeIP,
 		daemonEndpointPort: daemonEndpointPort,
-		// podStatus:          make(map[types.UID]CRIPod),
-		holdingPod:    nil,
-		runtimeClient: runtimeClient,
-		imageClient:   imageClient,
+		holdingPod:         nil,
+		runtimeClient:      runtimeClient,
+		imageClient:        imageClient,
 
-		// cachedPods: make(map[CachedPodKey]CachedPod),
-	}
-	err = mkdirAll(provider.podLogRoot, PodLogRootPerms)
-	if err != nil {
-		return nil, err
-	}
-	err = mkdirAll(provider.podVolRoot, PodVolRootPerms)
-	if err != nil {
-		return nil, err
+		agentDepend: agentDepend,
 	}
 
-	if !heart() {
-		return nil, errors.New("connect agent failed")
+	if agentDepend {
+		if !heart() {
+			return nil, errors.New("connect agent failed")
+		}
 	}
 
 	p := &provider
@@ -436,12 +426,6 @@ func (p *Provider) deletePod(ctx context.Context, pod *v1.Pod) error {
 		log.G(ctx).Debug(err)
 	}
 
-	// Remove any emptyDir volumes
-	// TODO: Is there other cleanup that needs to happen here?
-	err = removeAll(filepath.Join(p.podVolRoot, string(pod.UID)))
-	if err != nil {
-		log.G(ctx).Debug(err)
-	}
 	err = removePodSandbox(ctx, p.runtimeClient, ps.status.Id)
 
 	p.notifyStatus(pod)
@@ -697,9 +681,17 @@ func (p *Provider) ConfigureNode(ctx context.Context, n *v1.Node) {
 // Provider function to return the capacity of the node
 func (p *Provider) capacity(ctx context.Context) v1.ResourceList {
 	var cpuQ resource.Quantity
-	cpuQ.Set(int64(numCPU()))
+	if p.agentDepend {
+		cpuQ.Set(int64(numCPU()))
+	} else {
+		cpuQ.Set(0)
+	}
 	var memQ resource.Quantity
-	memQ.Set(int64(getSystemTotalMemory()))
+	if p.agentDepend {
+		memQ.Set(int64(getSystemTotalMemory()))
+	} else {
+		memQ.Set(0)
+	}
 
 	return v1.ResourceList{
 		"cpu":    cpuQ,
@@ -800,6 +792,8 @@ func (p *Provider) statusLoop(ctx context.Context) {
 		<-t.C
 	}
 
+	isHealth := true
+
 	for {
 		t.Reset(5 * time.Second)
 		select {
@@ -807,9 +801,20 @@ func (p *Provider) statusLoop(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-
+		if !isHealth {
+			log.G(ctx).Error("checkHealth failed")
+		}
 		if err := p.notifyPodStatuses(ctx); err != nil {
 			log.G(ctx).WithError(err).Error("Error updating node statuses")
+		}
+		if p.agentDepend {
+			if isHealth {
+				isHealth = false
+				go func() {
+					heart()
+					isHealth = true
+				}()
+			}
 		}
 	}
 }

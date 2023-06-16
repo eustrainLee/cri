@@ -76,15 +76,18 @@ func main() {
 		cri.CriPort = nodeIP + ":10350"
 	}
 
-	agentPort := os.Getenv("AGENT_PORT")
-	if agentPort != "" {
-		if strings.Contains(agentPort, ":") {
-			cri.AgentPort = agentPort
+	agentDependency := os.Getenv("AGENT_DEPEND") != "0"
+	if agentDependency {
+		agentPort := os.Getenv("AGENT_PORT")
+		if agentPort != "" {
+			if strings.Contains(agentPort, ":") {
+				cri.AgentPort = agentPort
+			} else {
+				cri.AgentPort = nodeIP + ":" + agentPort
+			}
 		} else {
-			cri.AgentPort = nodeIP + ":" + agentPort
+			cri.AgentPort = nodeIP + ":40002"
 		}
-	} else {
-		cri.AgentPort = nodeIP + ":40002"
 	}
 
 	o := opts.New()
@@ -94,7 +97,7 @@ func main() {
 		cli.WithBaseOpts(o),
 		cli.WithCLIVersion(buildVersion, buildTime),
 		cli.WithProvider("hrgcri", func(cfg provider.InitConfig) (provider.Provider, error) {
-			return cri.NewProvider(cfg.NodeName, cfg.OperatingSystem, nodeIP, cfg.InternalIP, cfg.ResourceManager, cfg.DaemonPort)
+			return cri.NewProvider(cfg.NodeName, cfg.OperatingSystem, nodeIP, cfg.InternalIP, cfg.ResourceManager, cfg.DaemonPort, agentDependency)
 		}),
 		cli.WithPersistentFlags(logConfig.FlagSet()),
 		cli.WithPersistentPreRunCallback(func() error {
