@@ -60,7 +60,8 @@ type Provider struct {
 	nodeIP             string
 	daemonEndpointPort int32
 	// podStatus          map[types.UID]CRIPod // Indexed by Pod Spec UID
-	holdingPod    *CRIPod
+	holdingCRIPod *CRIPod
+	holdingPod    *v1.Pod
 	runtimeClient criapi.RuntimeServiceClient
 	imageClient   criapi.ImageServiceClient
 	notifyStatus  func(*v1.Pod)
@@ -119,7 +120,7 @@ func (p *Provider) refreshNodeState(ctx context.Context) (retErr error) {
 		status:     pss,
 		containers: css,
 	}
-	p.holdingPod = newPod
+	p.holdingCRIPod = newPod
 
 	return nil
 }
@@ -193,7 +194,7 @@ func NewProvider(nodeName, operatingSystem string, nodeIP, internalIP string, re
 		internalIP:         internalIP,
 		nodeIP:             nodeIP,
 		daemonEndpointPort: daemonEndpointPort,
-		holdingPod:         nil,
+		holdingCRIPod:      nil,
 		runtimeClient:      runtimeClient,
 		imageClient:        imageClient,
 
@@ -339,7 +340,6 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 		pId = existing.status.Metadata.Uid
 	}
 
-	containerIds := make([]string, 0)
 	for _, c := range pod.Spec.Containers {
 		log.G(ctx).Debugf("Pulling image %s", c.Image)
 		klog.Info("Pulling image", c.Image)
@@ -363,8 +363,9 @@ func (p *Provider) createPod(ctx context.Context, pod *v1.Pod) error {
 		if err != nil {
 			klog.Errorln("start container ", cId, " failed")
 		}
-		containerIds = append(containerIds, cId)
 	}
+
+	p.holdingPod = pod
 
 	time.AfterFunc(5*time.Second, func() {
 		p.refreshNodeState(ctx)
@@ -414,6 +415,8 @@ func (p *Provider) deletePod(ctx context.Context, pod *v1.Pod) error {
 		return err
 	}
 
+	p.holdingPod = nil
+
 	ps := p.getHoldingCRIPod()
 	if ps == nil {
 		return errdefs.NotFoundf("Pod %s not found", pod.UID)
@@ -458,7 +461,7 @@ func (p *Provider) getPod(ctx context.Context, namespace, name string) (*v1.Pod,
 		return nil, errdefs.NotFoundf("Pod %s in namespace %s could not be found on the node", name, namespace)
 	}
 
-	return createPodSpecFromCRI(pod, p.nodeName), nil
+	return p.createPodSpecFromCRI(pod, p.nodeName), nil
 }
 
 // Provider function to read the logs of a container
@@ -476,13 +479,13 @@ func (p *Provider) RunInContainer(ctx context.Context, namespace, name, containe
 }
 
 func (p *Provider) getHoldingCRIPod() *CRIPod {
-	if p.holdingPod == nil {
+	if p.holdingCRIPod == nil {
 		return nil
 	}
-	if len(p.holdingPod.containers) == 0 {
+	if len(p.holdingCRIPod.containers) == 0 {
 		return nil
 	}
-	return p.holdingPod
+	return p.holdingCRIPod
 }
 
 // Provider function to return the status of a Pod
@@ -590,12 +593,27 @@ func createPodStatusFromCRI(p *CRIPod) *v1.PodStatus {
 	// }
 	// // phase := v1.PodRunning
 	phase := v1.PodRunning
+	exited := false
+	success := true
 	if p.containers != nil {
 		for _, c := range p.containers {
+			if c.State != criapi.ContainerState_CONTAINER_EXITED {
+				exited = true
+				if c.ExitCode != 0 {
+					success = false
+				}
+			}
 			if c.State != criapi.ContainerState_CONTAINER_RUNNING {
 				phase = v1.PodPending
 				break
 			}
+		}
+	}
+	if exited {
+		if success {
+			phase = v1.PodSucceeded
+		} else {
+			phase = v1.PodFailed
 		}
 	}
 
@@ -613,8 +631,8 @@ func createPodStatusFromCRI(p *CRIPod) *v1.PodStatus {
 }
 
 // Creates a Pod spec from data obtained through CRI
-func createPodSpecFromCRI(p *CRIPod, nodeName string) *v1.Pod {
-	cSpecs, _ := createContainerSpecsFromCRI(p.containers)
+func (p *Provider) createPodSpecFromCRI(criPod *CRIPod, nodeName string) *v1.Pod {
+	cSpecs, _ := createContainerSpecsFromCRI(criPod.containers)
 
 	// TODO: Fill out more fields here
 	podSpec := v1.Pod{
@@ -623,18 +641,24 @@ func createPodSpecFromCRI(p *CRIPod, nodeName string) *v1.Pod {
 			APIVersion: "v1",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      p.status.Metadata.Name,
-			Namespace: p.status.Metadata.Namespace,
+			Name:      criPod.status.Metadata.Name,
+			Namespace: criPod.status.Metadata.Namespace,
 			// ClusterName:       TODO: What is this??
-			UID:               types.UID(p.status.Metadata.Uid),
-			CreationTimestamp: metav1.NewTime(time.Unix(0, p.status.CreatedAt)),
+			UID:               types.UID(criPod.status.Metadata.Uid),
+			CreationTimestamp: metav1.NewTime(time.Unix(0, criPod.status.CreatedAt)),
 		},
 		Spec: v1.PodSpec{
 			NodeName:   nodeName,
 			Volumes:    []v1.Volume{},
 			Containers: cSpecs,
 		},
-		Status: *createPodStatusFromCRI(p),
+		Status: *createPodStatusFromCRI(criPod),
+	}
+
+	if p.holdingPod != nil {
+		podSpec.ObjectMeta.Name = p.holdingPod.ObjectMeta.Name
+		podSpec.ObjectMeta.Namespace = p.holdingPod.ObjectMeta.Namespace
+		podSpec.ObjectMeta.UID = p.holdingPod.ObjectMeta.UID
 	}
 
 	return &podSpec
@@ -654,7 +678,7 @@ func (p *Provider) GetPods(ctx context.Context) ([]*v1.Pod, error) {
 	var pods []*v1.Pod
 	ps := p.getHoldingCRIPod()
 	if ps != nil {
-		pods = []*v1.Pod{createPodSpecFromCRI(ps, p.nodeName)}
+		pods = []*v1.Pod{p.createPodSpecFromCRI(ps, p.nodeName)}
 	} else {
 		pods = []*v1.Pod{}
 	}
